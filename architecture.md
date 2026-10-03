@@ -145,25 +145,30 @@ Detailed findings from live device testing with `gr.nikolasspyr.integritycheck`:
   - `MEETS_DEVICE_INTEGRITY`: **FAIL** (Enforced server-side by Google).
   - `MEETS_STRONG_INTEGRITY`: **FAIL** (Requires locked bootloader or hardware keybox).
 - **Diagnostics & Interventions Performed**:
-  1. **Shamiko Whitelist vs Blacklist Mode**:
-     - Discovered `/data/adb/shamiko/whitelist` was present as an empty file, causing Shamiko to run in Whitelist mode (which unmounts root from everything except denylisted apps, meaning GMS was not protected).
-     - Deleted `/data/adb/shamiko/whitelist`, switching Shamiko back to **Blacklist mode** (`description=[😋 Shamiko is working as blacklist mode]`).
-     - Added all target processes to Magisk denylist:
-       - `com.google.android.gms`
-       - `com.google.android.gms.unstable`
+  1. **Shamiko Whitelist Mode**:
+     - Retained and verified user's configured **Whitelist mode** (`/data/adb/shamiko/whitelist`), ensuring root is hidden globally from all applications except those explicitly granted root in Magisk.
+     - Ensured all target processes remain protected:
+       - `com.google.android.gms` & `com.google.android.gms.unstable`
        - `com.android.vending`
        - `com.google.android.gsf`
        - `com.google.android.safetycore`
        - `com.google.android.verifier`
        - `gr.nikolasspyr.integritycheck`
-  2. **PlayIntegrityFix [INJECT] Synchronization**:
-     - Identified that `/data/adb/modules/playintegrityfix/pif.prop` had defaulted to `spoofProvider=false`, `spoofProps=false`, `DEBUG=false`, which bypassed dex injection.
-     - Synchronized `/data/adb/pif.prop` and `/data/adb/modules/playintegrityfix/pif.prop` to enforce all 7 required spoof flags:
+  2. **PlayIntegrityFix [INJECT] Dual-Path Synchronization**:
+     - Both `/data/adb/pif.prop` and `/data/adb/modules/playintegrityfix/pif.prop` are kept strictly in sync by `PifRepository`.
+     - Enforces all 7 required spoof flags:
        `spoofBuild=true`, `spoofProps=true`, `spoofProvider=true`, `spoofSignature=true`, `spoofVendingBuild=true`, `spoofVendingSdk=true`, `DEBUG=true`.
-  3. **Attestation & Hardware Enforcement Analysis**:
-     - Tested Google Pixel Canary (`tokay_beta`, `oriole_beta`), Pixel Beta DP (`bluejay_beta`, `frankel_beta`), and software attestation fallback props (`DEVICE_INITIAL_SDK_INT=25`, `ro.product.first_api_level=25`).
-     - Google Play Integrity servers enforce hardware Keymaster/KeyMint attestation for `MEETS_DEVICE_INTEGRITY` on modern attestation API requests. Public beta/canary fingerprints have been blocked server-side by Google from passing device integrity without hardware keybox attestation.
-     - Passing `MEETS_DEVICE_INTEGRITY` on devices with hardware keymaster requires either an unrevoked certified OEM release build or a hardware keybox injector (such as TrickyStore).
+  3. **AutoPIF Limitations & Complete Build Decomposition**:
+     - **Canary Scraper Issue**: The upstream `autopif.sh` in the module only fetches unreleased Pixel Canary builds (`:CANARY/`) and only populates 4 fields (`FINGERPRINT`, `MANUFACTURER`, `MODEL`, `SECURITY_PATCH`).
+     - **The "Frankendevice" Problem**: When only 4 fields are spoofed without corresponding build properties, GMS reads mismatched values (`Build.BRAND=samsung`, `Build.DEVICE=j7duolte`, `Build.VERSION.SDK_INT=29`, but `Build.FINGERPRINT=google/...`). This contradiction immediately flags the device to DroidGuard.
+     - **Full Property Tuple**: RootFix's updated `PifProfile` engine decomposes the fingerprint (`BRAND/PRODUCT/DEVICE:RELEASE/ID/INCREMENTAL:TYPE/TAGS`) into a coherent, matching set:
+       - `BRAND`, `PRODUCT`, `DEVICE`, `MANUFACTURER`, `MODEL`
+       - `RELEASE`, `ID`, `INCREMENTAL`, `TYPE`, `TAGS`
+       - `SECURITY_PATCH`, `DEVICE_INITIAL_SDK_INT`
+       - System props: `*.build.id`, `*.security_patch`, `*api_level`
+     - Built-in presets now provide complete certified OEM release builds (Pixel 7 Pro, Pixel 8a, Pixel 6a, Pixel 5, and Nougat Legacy) with all matching fields populated.
+  4. **Attestation & Hardware Enforcement**:
+     - Google Play Integrity servers enforce hardware Keymaster/KeyMint attestation for `MEETS_DEVICE_INTEGRITY`. Public beta/canary fingerprints are blocked server-side. Reliable `MEETS_DEVICE_INTEGRITY` on modern attestation requires either an unrevoked certified OEM build or a keybox injection module like **TrickyStore**.
 
 ---
 
