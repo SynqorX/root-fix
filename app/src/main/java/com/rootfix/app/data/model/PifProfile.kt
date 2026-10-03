@@ -7,11 +7,12 @@ data class PifProfile(
     val model: String = "",
     val securityPatch: String = "",
     val spoofBuild: Boolean = true,
-    val spoofProps: Boolean = false,
-    val spoofProvider: Boolean = false,
-    val spoofSignature: Boolean = false,
+    val spoofProps: Boolean = true,
+    val spoofProvider: Boolean = true,
+    val spoofSignature: Boolean = true,
     val spoofVendingBuild: Boolean = true,
-    val spoofVendingSdk: Boolean = false,
+    val spoofVendingSdk: Boolean = true,
+    val debug: Boolean = true,
     val additionalProps: Map<String, String> = emptyMap(),
     val sourcePath: String = "/data/adb/pif.prop"
 ) {
@@ -27,10 +28,23 @@ data class PifProfile(
         sb.append("spoofSignature=").append(spoofSignature).append("\n")
         sb.append("spoofVendingBuild=").append(spoofVendingBuild).append("\n")
         sb.append("spoofVendingSdk=").append(spoofVendingSdk).append("\n")
+        sb.append("DEBUG=").append(debug).append("\n")
         for ((k, v) in additionalProps) {
             sb.append(k).append("=").append(v).append("\n")
         }
         return sb.toString()
+    }
+
+    fun withAllSpoofsEnabled(): PifProfile {
+        return copy(
+            spoofBuild = true,
+            spoofProps = true,
+            spoofProvider = true,
+            spoofSignature = true,
+            spoofVendingBuild = true,
+            spoofVendingSdk = true,
+            debug = true
+        )
     }
 
     companion object {
@@ -40,11 +54,12 @@ data class PifProfile(
             var mdl = ""
             var secPatch = ""
             var sBuild = true
-            var sProps = false
-            var sProvider = false
-            var sSig = false
+            var sProps = true
+            var sProvider = true
+            var sSig = true
             var sVendingBuild = true
-            var sVendingSdk = false
+            var sVendingSdk = true
+            var sDebug = true
             val extras = mutableMapOf<String, String>()
 
             for (raw in lines) {
@@ -66,6 +81,7 @@ data class PifProfile(
                     "SPOOFSIGNATURE" -> sSig = value.toBoolean()
                     "SPOOFVENDINGBUILD" -> sVendingBuild = value.toBoolean()
                     "SPOOFVENDINGSDK" -> sVendingSdk = value.toBoolean()
+                    "DEBUG" -> sDebug = value.toBoolean()
                     else -> extras[key] = value
                 }
             }
@@ -82,6 +98,7 @@ data class PifProfile(
                 spoofSignature = sSig,
                 spoofVendingBuild = sVendingBuild,
                 spoofVendingSdk = sVendingSdk,
+                debug = sDebug,
                 additionalProps = extras,
                 sourcePath = path
             )

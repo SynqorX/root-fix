@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -19,6 +20,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.rootfix.app.data.model.PifProfile
+import com.rootfix.app.data.repository.AutoPifDevice
 import com.rootfix.app.data.repository.PifRepository
 import com.rootfix.app.ui.theme.*
 import kotlinx.coroutines.launch
@@ -33,9 +35,11 @@ fun PifScreen(
 
     var activeProfile by remember { mutableStateOf<PifProfile?>(null) }
     var availableProfiles by remember { mutableStateOf<List<PifProfile>>(emptyList()) }
+    var autoPifDevices by remember { mutableStateOf<List<AutoPifDevice>>(emptyList()) }
+    var selectedDevice by remember { mutableStateOf<AutoPifDevice?>(null) }
     var isLoading by remember { mutableStateOf(true) }
+    var isRunningAutoPif by remember { mutableStateOf(false) }
     var isApplying by remember { mutableStateOf(false) }
-    var isFetchingRemote by remember { mutableStateOf(false) }
     var showEditDialog by remember { mutableStateOf(false) }
 
     fun refresh() {
@@ -43,6 +47,10 @@ fun PifScreen(
             isLoading = true
             activeProfile = pifRepo.getActiveProfile()
             availableProfiles = pifRepo.getAvailableProfiles(fetchRemote = false)
+            autoPifDevices = pifRepo.getAutoPifDevices()
+            if (autoPifDevices.isNotEmpty() && selectedDevice == null) {
+                selectedDevice = autoPifDevices.firstOrNull { it.model.contains("Pixel 9") } ?: autoPifDevices.first()
+            }
             isLoading = false
         }
     }
@@ -60,22 +68,8 @@ fun PifScreen(
                     titleContentColor = MaterialTheme.colorScheme.onBackground
                 ),
                 actions = {
-                    IconButton(
-                        onClick = {
-                            scope.launch {
-                                isFetchingRemote = true
-                                val remote = pifRepo.getAvailableProfiles(fetchRemote = true)
-                                availableProfiles = remote
-                                isFetchingRemote = false
-                                Toast.makeText(context, "Loaded ${remote.size} profiles", Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                    ) {
-                        if (isFetchingRemote) {
-                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                        } else {
-                            Icon(Icons.Default.CloudDownload, contentDescription = "Fetch Online")
-                        }
+                    IconButton(onClick = { refresh() }) {
+                        Icon(Icons.Default.Refresh, contentDescription = "Refresh")
                     }
                 }
             )
@@ -89,6 +83,7 @@ fun PifScreen(
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            // Section 1: Active Configuration
             item {
                 Text(
                     text = "Active Configuration",
@@ -98,7 +93,6 @@ fun PifScreen(
                 )
             }
 
-            // Current Active Card
             item {
                 Card(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -125,8 +119,8 @@ fun PifScreen(
                                 }
                             }
 
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(text = "FINGERPRINT", fontSize = 11.sp, color = TextSecondary)
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(text = "FINGERPRINT", fontSize = 10.sp, color = TextSecondary)
                             Text(
                                 text = prof.fingerprint,
                                 fontFamily = FontFamily.Monospace,
@@ -137,12 +131,47 @@ fun PifScreen(
                             Spacer(modifier = Modifier.height(8.dp))
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                 Column {
-                                    Text(text = "Security Patch", fontSize = 11.sp, color = TextSecondary)
-                                    Text(text = prof.securityPatch, fontSize = 13.sp)
+                                    Text(text = "Security Patch", fontSize = 10.sp, color = TextSecondary)
+                                    Text(text = prof.securityPatch, fontSize = 12.sp)
                                 }
                                 Column {
-                                    Text(text = "Config Path", fontSize = 11.sp, color = TextSecondary)
-                                    Text(text = prof.sourcePath, fontSize = 13.sp, color = TextSecondary)
+                                    Text(text = "Target Path", fontSize = 10.sp, color = TextSecondary)
+                                    Text(text = prof.sourcePath, fontSize = 12.sp, color = TextSecondary)
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+                            HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            // 7 Spoof Badges
+                            Text(text = "Enforced Spoofs (All 7 Required)", fontSize = 10.sp, color = TextSecondary, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                listOf(
+                                    "Build" to prof.spoofBuild,
+                                    "Props" to prof.spoofProps,
+                                    "Provider" to prof.spoofProvider,
+                                    "Signature" to prof.spoofSignature,
+                                    "VendingBuild" to prof.spoofVendingBuild,
+                                    "VendingSDK" to prof.spoofVendingSdk,
+                                    "DEBUG" to prof.debug
+                                ).forEach { (name, enabled) ->
+                                    Surface(
+                                        color = if (enabled) PrimaryEmerald.copy(alpha = 0.2f) else DangerRed.copy(alpha = 0.2f),
+                                        shape = RoundedCornerShape(4.dp)
+                                    ) {
+                                        Text(
+                                            text = name,
+                                            color = if (enabled) PrimaryEmerald else DangerRed,
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                                        )
+                                    }
                                 }
                             }
                         } else {
@@ -152,15 +181,109 @@ fun PifScreen(
                 }
             }
 
+            // Section 2: AutoPIF Engine
             item {
-                Spacer(modifier = Modifier.height(8.dp))
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.FlashOn, contentDescription = null, tint = WarningAmber, modifier = Modifier.size(22.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "AutoPIF Canary Engine",
+                                    fontWeight = FontWeight.Bold,
+                                    style = MaterialTheme.typography.titleMedium
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "Queries Google's FlashStation Canary releases, generates verified Pixel Canary fingerprints, and enforces all 7 spoofs automatically.",
+                            fontSize = 12.sp,
+                            color = TextSecondary
+                        )
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        if (autoPifDevices.isNotEmpty()) {
+                            Text(text = "Select Canary Target Device:", fontSize = 11.sp, color = TextSecondary)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                items(autoPifDevices) { dev ->
+                                    val isDevSelected = selectedDevice?.product == dev.product
+                                    FilterChip(
+                                        selected = isDevSelected,
+                                        onClick = { selectedDevice = dev },
+                                        label = { Text(dev.model, fontSize = 11.sp) },
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                            selectedLabelColor = MaterialTheme.colorScheme.onPrimary
+                                        )
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(10.dp))
+                        }
+
+                        Button(
+                            onClick = {
+                                scope.launch {
+                                    isRunningAutoPif = true
+                                    val (success, newProfile) = pifRepo.runAutoPif(
+                                        cacheDir = context.cacheDir,
+                                        device = selectedDevice,
+                                        restartGmsNow = true
+                                    )
+                                    isRunningAutoPif = false
+                                    if (success && newProfile != null) {
+                                        activeProfile = newProfile
+                                        Toast.makeText(
+                                            context,
+                                            "AutoPIF applied ${newProfile.model} with all 7 spoofs!",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    } else {
+                                        Toast.makeText(context, "AutoPIF execution failed", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(containerColor = PrimaryEmerald),
+                            shape = RoundedCornerShape(10.dp),
+                            enabled = !isRunningAutoPif
+                        ) {
+                            if (isRunningAutoPif) {
+                                CircularProgressIndicator(modifier = Modifier.size(18.dp), color = DarkBackground, strokeWidth = 2.dp)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Running AutoPIF Canary Engine...", color = DarkBackground)
+                            } else {
+                                Icon(Icons.Default.Bolt, contentDescription = null, tint = DarkBackground, modifier = Modifier.size(20.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Run AutoPIF & Enforce All 7 Spoofs", color = DarkBackground, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Section 3: Tested Presets
+            item {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Tested Profiles & Presets",
+                        text = "Verified Presets (All 7 Spoofs)",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
@@ -186,11 +309,11 @@ fun PifScreen(
                                 isApplying = true
                                 val success = pifRepo.applyProfile(
                                     cacheDir = context.cacheDir,
-                                    profile = profile,
+                                    profile = profile.withAllSpoofsEnabled(),
                                     restartGmsNow = true
                                 )
                                 if (success) {
-                                    activeProfile = profile
+                                    activeProfile = profile.withAllSpoofsEnabled()
                                     Toast.makeText(context, "Applied ${profile.name} & reloaded GMS", Toast.LENGTH_SHORT).show()
                                 } else {
                                     Toast.makeText(context, "Failed to apply profile", Toast.LENGTH_SHORT).show()
@@ -291,6 +414,11 @@ fun PifScreen(
                         label = { Text("Security Patch") },
                         modifier = Modifier.fillMaxWidth()
                     )
+                    Text(
+                        text = "All 7 spoofs (Build, Props, Provider, Signature, VendingBuild, VendingSDK, DEBUG) will be automatically enforced.",
+                        fontSize = 11.sp,
+                        color = PrimaryEmerald
+                    )
                 }
             },
             confirmButton = {
@@ -301,7 +429,8 @@ fun PifScreen(
                             manufacturer = editMfr.trim(),
                             model = editModel.trim(),
                             securityPatch = editSecPatch.trim()
-                        )
+                        ).withAllSpoofsEnabled()
+
                         scope.launch {
                             val saved = pifRepo.applyProfile(context.cacheDir, updated, restartGmsNow = true)
                             if (saved) {

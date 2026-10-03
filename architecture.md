@@ -87,20 +87,34 @@ Interacts with the local Magisk installation:
   - Uninstall: `touch /data/adb/modules/<id>/remove`
 - **Installation**: Executes `magisk --install-module "<path_to_zip>"` and streams installation output.
 
-### 5.3 Autonomous PIF (Play Integrity Fix) Engine
+### 5.3 Autonomous PIF (Play Integrity Fix) Engine & AutoPIF Integration
 Play Integrity attestation requires valid device fingerprints. When fingerprints are revoked, devices fail device integrity.
 The PIF Engine:
-- **Reads Active Profile**: Supports both `/data/adb/pif.prop` (Key-Value format) and `/data/adb/pif.json` (JSON format).
-- **Fetches Verified Profiles**: Connects to configurable, reliable remote endpoints or GitHub repositories providing community-tested fingerprints.
-- **Safety Validation**: Verifies schema (`FINGERPRINT`, `MANUFACTURER`, `MODEL`, `SECURITY_PATCH`) before write.
+- **Reads Active Profile**: Supports `/data/adb/pif.prop` (Key-Value format) with automatic fallback and schema parsing.
+- **Enforces All 7 Spoof Flags**: Every profile saved or fetched is strictly required to enable all 7 spoofs:
+  1. `spoofBuild=true` (spoof android.os.Build fields)
+  2. `spoofProps=true` (spoof system properties)
+  3. `spoofProvider=true` (spoof GMS service provider)
+  4. `spoofSignature=true` (spoof build signature)
+  5. `spoofVendingBuild=true` (spoof Play Store vending build)
+  6. `spoofVendingSdk=true` (spoof Play Store vending SDK)
+  7. `DEBUG=true` (enable debug telemetry for PIF module)
+- **AutoPIF Canary Engine**: Directly integrates `/data/adb/modules/playintegrityfix/autopif.sh`:
+  - Dynamically discovers all Pixel Canary devices via `autopif.sh --list` (`Pixel 6a` up to `Pixel 11 Pro Fold`).
+  - Fetches latest Canary release candidates from Google FlashStation (`https://content-flashstation-pa.googleapis.com/v1/builds?product=$PRODUCT&key=$FLASH_KEY`).
+  - Extracts Canary build ID, release candidate name, and Pixel security bulletin date.
+  - Automatically updates `/data/adb/pif.prop` and enforces all 7 required spoof flags.
 - **Atomic Replacement**:
   1. Writes to temporary file: `/data/adb/pif.prop.tmp`
-  2. Sets permission: `chmod 644 /data/adb/pif.prop.tmp`
-  3. Atomically replaces: `mv -f /data/adb/pif.prop.tmp /data/adb/pif.prop`
-  4. Restores context: `restorecon /data/adb/pif.prop`
-- **GMS Refresh**: Kills `com.google.android.gms.unstable` so Google Play Services re-reads the updated fingerprint without requiring a full device reboot:
+  2. Creates backup copy: `/data/adb/pif.prop.bak`
+  3. Sets permission: `chmod 644 /data/adb/pif.prop.tmp`
+  4. Atomically replaces: `mv -f /data/adb/pif.prop.tmp /data/adb/pif.prop`
+  5. Restores context: `restorecon /data/adb/pif.prop`
+- **GMS Refresh**: Terminates `com.google.android.gms.unstable` and `com.android.vending` so Google Play Services reloads the new fingerprint without requiring a device reboot:
   ```bash
-  killall -9 com.google.android.gms.unstable 2>/dev/null || pkill -f com.google.android.gms.unstable
+  pkill -9 -f com.google.android.gms.unstable 2>/dev/null
+  pkill -9 -f com.android.vending 2>/dev/null
+  am force-stop com.google.android.gms 2>/dev/null
   ```
 
 ### 5.4 Background Scheduling (`WorkManager`)
@@ -171,8 +185,13 @@ root-fix/
 ## 9. Verification & Agent Developer Guide
 
 ### 9.1 On-Device Verification Results
-- **Dashboard Screen**: Displays verified root privilege status, Magisk 30.7 details, SELinux enforcing state, active PIF fingerprint, and autonomous sync state.
-- **PIF Autopilot Screen**: Lists built-in tested fingerprint presets (Pixel 9, Pixel 8a, Pixel 7 Pro, Xiaomi 13), allows online profile retrieval, manual profile editing, and performs atomic prop file replacement with automatic `.bak` backup and GMS restart without full device reboot.
+- **Dashboard Screen**: Displays verified root privilege status (UID 0), Magisk 30.7 details, SELinux enforcing state, active PIF fingerprint, and autonomous sync state.
+- **PIF Autopilot Screen & AutoPIF Engine**:
+  - Dynamically parses `autopif.sh --list` and populates the device selector (`Pixel 6a` through `Pixel 11 Pro Fold`).
+  - Executes `autopif.sh` under root to fetch live Google FlashStation Canary releases.
+  - Automatically enforces all 7 required spoof flags (`spoofBuild=true`, `spoofProps=true`, `spoofProvider=true`, `spoofSignature=true`, `spoofVendingBuild=true`, `spoofVendingSdk=true`, `DEBUG=true`).
+  - Visual status verified: All 7 spoof badges render active (emerald green) in the UI.
+  - Verified on `/data/adb/pif.prop`: Atomic write confirmed with automatic backup creation (`pif.prop.bak`) and GMS/Vending reload without reboot.
 - **Magisk Modules Screen**: Accurately queries and displays all installed Magisk modules (`playintegrityfix`, `zygisk_shamiko`, `zygisk-detach`), with interactive toggle controls (`disable` marker management) and uninstall marking (`remove` marker management).
 
 ### 9.2 Instructions for Future Agents

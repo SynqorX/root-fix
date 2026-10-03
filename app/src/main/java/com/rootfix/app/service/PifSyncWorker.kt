@@ -2,13 +2,7 @@ package com.rootfix.app.service
 
 import android.content.Context
 import android.util.Log
-import androidx.work.Constraints
-import androidx.work.CoroutineWorker
-import androidx.work.ExistingPeriodicWorkPolicy
-import androidx.work.NetworkType
-import androidx.work.PeriodicWorkRequestBuilder
-import androidx.work.WorkManager
-import androidx.work.WorkerParameters
+import androidx.work.*
 import com.rootfix.app.data.repository.PifRepository
 import com.rootfix.app.data.repository.RootExecutor
 import kotlinx.coroutines.Dispatchers
@@ -31,26 +25,31 @@ class PifSyncWorker(
         }
 
         try {
-            val currentProfile = pifRepo.getActiveProfile()
-            val available = pifRepo.getAvailableProfiles(fetchRemote = true)
+            // Autonomous Canary fetch via autopif engine
+            Log.i(TAG, "Executing autonomous AutoPIF canary sync...")
+            val (success, profile) = pifRepo.runAutoPif(
+                cacheDir = applicationContext.cacheDir,
+                device = null, // auto-selects latest verified Canary device
+                restartGmsNow = true
+            )
 
-            if (available.isNotEmpty()) {
-                val latest = available.first()
-                if (currentProfile == null || currentProfile.fingerprint != latest.fingerprint) {
-                    Log.i(TAG, "New fingerprint detected: ${latest.fingerprint}. Applying automatically...")
-                    val success = pifRepo.applyProfile(
+            if (success && profile != null) {
+                Log.i(TAG, "Autonomous sync successful: ${profile.fingerprint} with all 7 spoofs active")
+                Result.success()
+            } else {
+                // Fallback to presets if autopif script failed (e.g. offline)
+                val available = pifRepo.getAvailableProfiles(fetchRemote = true)
+                if (available.isNotEmpty()) {
+                    pifRepo.applyProfile(
                         cacheDir = applicationContext.cacheDir,
-                        profile = latest,
+                        profile = available.first().withAllSpoofsEnabled(),
                         restartGmsNow = true
                     )
-                    if (success) {
-                        Log.i(TAG, "PIF updated and GMS restarted successfully")
-                    }
+                    Result.success()
                 } else {
-                    Log.d(TAG, "Current fingerprint is up to date: ${currentProfile.fingerprint}")
+                    Result.retry()
                 }
             }
-            Result.success()
         } catch (e: Exception) {
             Log.e(TAG, "Error during autonomous PIF sync", e)
             Result.retry()
@@ -69,7 +68,7 @@ class PifSyncWorker(
 
             val workRequest = PeriodicWorkRequestBuilder<PifSyncWorker>(
                 intervalHours, TimeUnit.HOURS,
-                15, TimeUnit.MINUTES // flex window
+                15, TimeUnit.MINUTES
             )
                 .setConstraints(constraints)
                 .build()
