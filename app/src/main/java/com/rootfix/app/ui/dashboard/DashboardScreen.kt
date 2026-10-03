@@ -345,9 +345,11 @@ fun DashboardScreen(
 
                     Text(text = "Target Services:", fontSize = 11.sp, color = TextSecondary, fontWeight = FontWeight.SemiBold)
                     Spacer(modifier = Modifier.height(6.dp))
-                    Row(
+                    @OptIn(ExperimentalLayoutApi::class)
+                    FlowRow(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         googlePackages.filter { it.isInstalled }.forEach { pkgInfo ->
                             val isSel = selectedPkgs.contains(pkgInfo.packageName)

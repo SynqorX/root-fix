@@ -128,12 +128,42 @@ Managed by `GoogleServicesRepository`:
   - `com.google.android.gms` (Google Play Services)
   - `com.android.vending` (Google Play Store)
   - `com.google.android.gsf` (Google Services Framework)
-- **Safe Cache Wipe**: Clears temporary runtime caches (`/data/data/<pkg>/cache/*`, `/data/data/<pkg>/code_cache/*`, and `/data/user_de/0/<pkg>/cache/*`) and kills the unstable attestation process (`com.google.android.gms.unstable`) without touching user accounts or contactless cards.
-- **Deep Data Wipe**: Issues root-level `pm clear <package>` on selected packages to completely purge corrupt or banned attestation states and force fresh token generation.
+  - `gr.nikolasspyr.integritycheck` (Play Integrity Checker)
+  - `com.google.android.safetycore` (Android Safety Core)
+  - `com.google.android.verifier` (Google Play Protect Service)
+- **Safe Cache Wipe**: Clears temporary runtime caches (`/data/data/<pkg>/cache/*`, `/data/data/<pkg>/code_cache/*`, and `/data/user_de/0/<pkg>/cache/*`), stops target packages (`am force-stop`), and kills the unstable attestation process (`com.google.android.gms.unstable`) without touching user accounts or contactless cards.
+- **Deep Data Wipe**: Issues root-level `pm clear <package>` on selected packages to completely purge corrupt or banned attestation states, clear cached integrity tokens, and force fresh token generation.
 - **Safety & Warning Safeguards**:
-  - Prominent amber warning banner displayed directly in UI.
-  - Interactive chip selection for granular targeting.
+  - Prominent amber warning banner displayed directly in UI with warning icon.
+  - Interactive chip selection rendered using responsive `FlowRow` for neat wrapping.
   - Two-step confirmation modal with alert sign before deep data wipes.
+
+### 5.6 Play Integrity Verification & Attestation Diagnostics
+Detailed findings from live device testing with `gr.nikolasspyr.integritycheck`:
+- **Current Verdicts**:
+  - `MEETS_BASIC_INTEGRITY`: **PASS** (Confirmed via green checkmark & JSON payload `deviceRecognitionVerdict: ["MEETS_BASIC_INTEGRITY"]`).
+  - `MEETS_DEVICE_INTEGRITY`: **FAIL** (Enforced server-side by Google).
+  - `MEETS_STRONG_INTEGRITY`: **FAIL** (Requires locked bootloader or hardware keybox).
+- **Diagnostics & Interventions Performed**:
+  1. **Shamiko Whitelist vs Blacklist Mode**:
+     - Discovered `/data/adb/shamiko/whitelist` was present as an empty file, causing Shamiko to run in Whitelist mode (which unmounts root from everything except denylisted apps, meaning GMS was not protected).
+     - Deleted `/data/adb/shamiko/whitelist`, switching Shamiko back to **Blacklist mode** (`description=[😋 Shamiko is working as blacklist mode]`).
+     - Added all target processes to Magisk denylist:
+       - `com.google.android.gms`
+       - `com.google.android.gms.unstable`
+       - `com.android.vending`
+       - `com.google.android.gsf`
+       - `com.google.android.safetycore`
+       - `com.google.android.verifier`
+       - `gr.nikolasspyr.integritycheck`
+  2. **PlayIntegrityFix [INJECT] Synchronization**:
+     - Identified that `/data/adb/modules/playintegrityfix/pif.prop` had defaulted to `spoofProvider=false`, `spoofProps=false`, `DEBUG=false`, which bypassed dex injection.
+     - Synchronized `/data/adb/pif.prop` and `/data/adb/modules/playintegrityfix/pif.prop` to enforce all 7 required spoof flags:
+       `spoofBuild=true`, `spoofProps=true`, `spoofProvider=true`, `spoofSignature=true`, `spoofVendingBuild=true`, `spoofVendingSdk=true`, `DEBUG=true`.
+  3. **Attestation & Hardware Enforcement Analysis**:
+     - Tested Google Pixel Canary (`tokay_beta`, `oriole_beta`), Pixel Beta DP (`bluejay_beta`, `frankel_beta`), and software attestation fallback props (`DEVICE_INITIAL_SDK_INT=25`, `ro.product.first_api_level=25`).
+     - Google Play Integrity servers enforce hardware Keymaster/KeyMint attestation for `MEETS_DEVICE_INTEGRITY` on modern attestation API requests. Public beta/canary fingerprints have been blocked server-side by Google from passing device integrity without hardware keybox attestation.
+     - Passing `MEETS_DEVICE_INTEGRITY` on devices with hardware keymaster requires either an unrevoked certified OEM release build or a hardware keybox injector (such as TrickyStore).
 
 ---
 

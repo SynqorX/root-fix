@@ -15,7 +15,10 @@ class GoogleServicesRepository {
     private val targetPackages = listOf(
         "com.google.android.gms" to "Google Play Services",
         "com.android.vending" to "Google Play Store",
-        "com.google.android.gsf" to "Google Services Framework"
+        "com.google.android.gsf" to "Google Services Framework",
+        "gr.nikolasspyr.integritycheck" to "Play Integrity Checker",
+        "com.google.android.safetycore" to "Android Safety Core",
+        "com.google.android.verifier" to "Google Play Protect Service"
     )
 
     suspend fun getInstalledGooglePackages(): List<GooglePackageInfo> = withContext(Dispatchers.IO) {
@@ -36,6 +39,7 @@ class GoogleServicesRepository {
         val cmds = mutableListOf<String>()
         for (pkg in packages) {
             cmds.add("rm -rf /data/data/$pkg/cache/* /data/data/$pkg/code_cache/* /data/user_de/0/$pkg/cache/* 2>/dev/null || true")
+            cmds.add("am force-stop $pkg 2>/dev/null || true")
         }
         cmds.add("pkill -9 -f com.google.android.gms.unstable 2>/dev/null || true")
         cmds.add("pkill -9 -f com.android.vending 2>/dev/null || true")
@@ -47,6 +51,7 @@ class GoogleServicesRepository {
         val cmds = mutableListOf<String>()
         for (pkg in packages) {
             cmds.add("pm clear $pkg")
+            cmds.add("am force-stop $pkg 2>/dev/null || true")
         }
         cmds.add("pkill -9 -f com.google.android.gms.unstable 2>/dev/null || true")
         cmds.add("pkill -9 -f com.android.vending 2>/dev/null || true")
