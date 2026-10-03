@@ -23,6 +23,7 @@ import com.rootfix.app.data.model.PifProfile
 import com.rootfix.app.data.repository.AutoPifDevice
 import com.rootfix.app.data.repository.PifRepository
 import com.rootfix.app.ui.theme.*
+import com.rootfix.app.ui.extra.RootFixGlassCard
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -94,8 +95,7 @@ fun PifScreen(
             }
 
             item {
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                RootFixGlassCard(
                     shape = RoundedCornerShape(16.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -183,8 +183,7 @@ fun PifScreen(
 
             // Section 2: AutoPIF Engine
             item {
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                RootFixGlassCard(
                     shape = RoundedCornerShape(16.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -297,10 +296,8 @@ fun PifScreen(
 
             items(availableProfiles) { profile ->
                 val isSelected = activeProfile?.fingerprint == profile.fingerprint
-                Card(
-                    colors = CardDefaults.cardColors(
-                        containerColor = if (isSelected) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface
-                    ),
+                RootFixGlassCard(
+                    tint = if (isSelected) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface,
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier
                         .fillMaxWidth()

@@ -11,9 +11,12 @@ import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material3.*
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.unit.dp
 import com.rootfix.app.data.repository.MagiskRepository
 import com.rootfix.app.data.repository.PifRepository
 import com.rootfix.app.service.PifSyncWorker
@@ -46,7 +49,13 @@ class MainActivity : ComponentActivity() {
                 Scaffold(
                     bottomBar = {
                         NavigationBar(
-                            containerColor = MaterialTheme.colorScheme.surface
+                            modifier = Modifier.border(
+                                width = 1.dp,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
+                                shape = RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp)
+                            ),
+                            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
+                            tonalElevation = 8.dp
                         ) {
                             Screen.values().forEach { screen ->
                                 NavigationBarItem(

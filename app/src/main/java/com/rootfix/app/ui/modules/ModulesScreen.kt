@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.sp
 import com.rootfix.app.data.model.MagiskModule
 import com.rootfix.app.data.repository.MagiskRepository
 import com.rootfix.app.ui.theme.*
+import com.rootfix.app.ui.extra.RootFixGlassCard
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -106,10 +107,8 @@ fun ModulesScreen(
                     var isEnabled by remember(module.id, module.isEnabled) { mutableStateOf(module.isEnabled) }
                     var isRemovePending by remember(module.id, module.isRemovePending) { mutableStateOf(module.isRemovePending) }
 
-                    Card(
-                        colors = CardDefaults.cardColors(
-                            containerColor = if (isRemovePending) DangerRed.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surface
-                        ),
+                    RootFixGlassCard(
+                        tint = if (isRemovePending) DangerRed.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surface,
                         shape = RoundedCornerShape(14.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {

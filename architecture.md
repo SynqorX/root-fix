@@ -122,6 +122,19 @@ The PIF Engine:
 - Only triggers when network is connected and battery is not low.
 - In case of fingerprint expiration or user request, performs the fetch -> validate -> atomic write -> GMS restart sequence autonomously.
 
+### 5.5 Google Services & Attestation Reset Subsystem
+Managed by `GoogleServicesRepository`:
+- **Target Components**:
+  - `com.google.android.gms` (Google Play Services)
+  - `com.android.vending` (Google Play Store)
+  - `com.google.android.gsf` (Google Services Framework)
+- **Safe Cache Wipe**: Clears temporary runtime caches (`/data/data/<pkg>/cache/*`, `/data/data/<pkg>/code_cache/*`, and `/data/user_de/0/<pkg>/cache/*`) and kills the unstable attestation process (`com.google.android.gms.unstable`) without touching user accounts or contactless cards.
+- **Deep Data Wipe**: Issues root-level `pm clear <package>` on selected packages to completely purge corrupt or banned attestation states and force fresh token generation.
+- **Safety & Warning Safeguards**:
+  - Prominent amber warning banner displayed directly in UI.
+  - Interactive chip selection for granular targeting.
+  - Two-step confirmation modal with alert sign before deep data wipes.
+
 ---
 
 ## 6. Project Implementation Structure
@@ -185,7 +198,8 @@ root-fix/
 ## 9. Verification & Agent Developer Guide
 
 ### 9.1 On-Device Verification Results
-- **Dashboard Screen**: Displays verified root privilege status (UID 0), Magisk 30.7 details, SELinux enforcing state, active PIF fingerprint, and autonomous sync state.
+- **Dashboard Screen**: Displays verified root privilege status (UID 0), Magisk 30.7 details, SELinux enforcing state, active PIF fingerprint, and autonomous sync state. Includes glassmorphic design (`RootFixGlassCard`).
+- **Google Services Reset & Cache Manager**: Integrated on Dashboard with prominent warning banner, target package selection chips, safe cache clearance, and full data wipe protected by a confirmation modal. Verified live on device for `com.google.android.gms`, `com.android.vending`, and `com.google.android.gsf`.
 - **PIF Autopilot Screen & AutoPIF Engine**:
   - Dynamically parses `autopif.sh --list` and populates the device selector (`Pixel 6a` through `Pixel 11 Pro Fold`).
   - Executes `autopif.sh` under root to fetch live Google FlashStation Canary releases.

@@ -21,14 +21,19 @@ import com.rootfix.app.data.model.PifProfile
 import com.rootfix.app.data.model.RootStatus
 import com.rootfix.app.data.repository.MagiskRepository
 import com.rootfix.app.data.repository.PifRepository
+import com.rootfix.app.data.repository.GoogleServicesRepository
+import com.rootfix.app.data.repository.GooglePackageInfo
 import com.rootfix.app.service.PifSyncWorker
 import com.rootfix.app.ui.theme.*
+import com.rootfix.app.ui.extra.RootFixGlassCard
+import androidx.compose.foundation.BorderStroke
 import kotlinx.coroutines.launch
 
 @Composable
 fun DashboardScreen(
     magiskRepo: MagiskRepository,
     pifRepo: PifRepository,
+    googleRepo: GoogleServicesRepository = remember { GoogleServicesRepository() },
     onNavigateToPif: () -> Unit,
     onNavigateToModules: () -> Unit
 ) {
@@ -42,6 +47,19 @@ fun DashboardScreen(
     var isLoading by remember { mutableStateOf(true) }
     var isRestartingGms by remember { mutableStateOf(false) }
 
+    val defaultGooglePackages = remember {
+        listOf(
+            GooglePackageInfo("com.google.android.gms", "Play Services", true),
+            GooglePackageInfo("com.android.vending", "Play Store", true),
+            GooglePackageInfo("com.google.android.gsf", "Services Framework", true)
+        )
+    }
+    var googlePackages by remember { mutableStateOf(defaultGooglePackages) }
+    var selectedPkgs by remember { mutableStateOf(setOf("com.google.android.gms", "com.android.vending", "com.google.android.gsf")) }
+    var isClearingCache by remember { mutableStateOf(false) }
+    var isClearingData by remember { mutableStateOf(false) }
+    var showConfirmWipeDialog by remember { mutableStateOf(false) }
+
     fun refreshAll() {
         scope.launch {
             isLoading = true
@@ -49,6 +67,7 @@ fun DashboardScreen(
             activePif = pifRepo.getActiveProfile()
             val modules = magiskRepo.getInstalledModules()
             moduleCount = modules.size
+            googlePackages = googleRepo.getInstalledGooglePackages()
             isLoading = false
         }
     }
@@ -97,8 +116,7 @@ fun DashboardScreen(
             }
 
             // Root & System Status Card
-            Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            RootFixGlassCard(
                 shape = RoundedCornerShape(16.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
@@ -158,8 +176,7 @@ fun DashboardScreen(
             }
 
             // Active PIF Card
-            Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            RootFixGlassCard(
                 shape = RoundedCornerShape(16.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
@@ -260,9 +277,161 @@ fun DashboardScreen(
                 }
             }
 
+            // Google Services Data & Cache Card
+            RootFixGlassCard(
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.DeleteSweep,
+                                contentDescription = null,
+                                tint = WarningAmber,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column {
+                                Text(
+                                    text = "Google Services Reset",
+                                    fontWeight = FontWeight.Bold,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = "Clear cache & attestation tokens",
+                                    fontSize = 12.sp,
+                                    color = TextSecondary
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Warning Box with Warning Sign
+                    Surface(
+                        color = WarningAmber.copy(alpha = 0.12f),
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, WarningAmber.copy(alpha = 0.6f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Warning,
+                                contentDescription = "Warning",
+                                tint = WarningAmber,
+                                modifier = Modifier.size(28.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = "Warning: Wiping Google Play Services data resets device attestation tokens and Play Store caches. Your Google account and Wallet will resync on next launch.",
+                                fontSize = 12.sp,
+                                color = WarningAmber,
+                                lineHeight = 16.sp
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Text(text = "Target Services:", fontSize = 11.sp, color = TextSecondary, fontWeight = FontWeight.SemiBold)
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        googlePackages.filter { it.isInstalled }.forEach { pkgInfo ->
+                            val isSel = selectedPkgs.contains(pkgInfo.packageName)
+                            FilterChip(
+                                selected = isSel,
+                                onClick = {
+                                    selectedPkgs = if (isSel) {
+                                        selectedPkgs - pkgInfo.packageName
+                                    } else {
+                                        selectedPkgs + pkgInfo.packageName
+                                    }
+                                },
+                                label = { Text(pkgInfo.displayName, fontSize = 11.sp) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                    selectedLabelColor = MaterialTheme.colorScheme.primary
+                                )
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                if (selectedPkgs.isEmpty()) {
+                                    Toast.makeText(context, "Select at least one service", Toast.LENGTH_SHORT).show()
+                                    return@OutlinedButton
+                                }
+                                scope.launch {
+                                    isClearingCache = true
+                                    val res = googleRepo.clearCache(selectedPkgs.toList())
+                                    isClearingCache = false
+                                    Toast.makeText(
+                                        context,
+                                        if (res) "Google cache cleared & GMS reloaded" else "Failed to clear cache",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                            },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(10.dp),
+                            enabled = !isClearingCache && !isClearingData
+                        ) {
+                            if (isClearingCache) {
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                            } else {
+                                Icon(Icons.Default.CleaningServices, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Clear Cache", fontSize = 12.sp)
+                            }
+                        }
+
+                        Button(
+                            onClick = {
+                                if (selectedPkgs.isEmpty()) {
+                                    Toast.makeText(context, "Select at least one service", Toast.LENGTH_SHORT).show()
+                                    return@Button
+                                }
+                                showConfirmWipeDialog = true
+                            },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(containerColor = DangerRed),
+                            shape = RoundedCornerShape(10.dp),
+                            enabled = !isClearingCache && !isClearingData
+                        ) {
+                            if (isClearingData) {
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp), color = TextPrimary, strokeWidth = 2.dp)
+                            } else {
+                                Icon(Icons.Default.DeleteForever, contentDescription = null, tint = TextPrimary, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Wipe Data", fontSize = 12.sp, color = TextPrimary, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+            }
+
             // Autonomous Sync Card
-            Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            RootFixGlassCard(
                 shape = RoundedCornerShape(16.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
@@ -302,8 +471,7 @@ fun DashboardScreen(
             }
 
             // Magisk Modules Summary Card
-            Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            RootFixGlassCard(
                 shape = RoundedCornerShape(16.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
@@ -337,5 +505,58 @@ fun DashboardScreen(
                 }
             }
         }
+    }
+
+    // Confirmation Dialog for Wiping Data
+    if (showConfirmWipeDialog) {
+        AlertDialog(
+            onDismissRequest = { showConfirmWipeDialog = false },
+            icon = {
+                Icon(
+                    imageVector = Icons.Default.Warning,
+                    contentDescription = null,
+                    tint = DangerRed,
+                    modifier = Modifier.size(32.dp)
+                )
+            },
+            title = {
+                Text(
+                    text = "Wipe Google Services Data?",
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Text(
+                    text = "This will completely reset data for: ${selectedPkgs.joinToString(", ")}.\n\nPlay Integrity tokens, Google Play caches, and local attestation state will be wiped clean. Google account sync and contactless cards will briefly resync. Do you want to proceed?",
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showConfirmWipeDialog = false
+                        scope.launch {
+                            isClearingData = true
+                            val res = googleRepo.clearFullData(selectedPkgs.toList())
+                            isClearingData = false
+                            Toast.makeText(
+                                context,
+                                if (res) "Google Services data wiped successfully" else "Failed to wipe data",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = DangerRed)
+                ) {
+                    Text("Wipe Data Now", color = TextPrimary, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showConfirmWipeDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 }
