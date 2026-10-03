@@ -110,41 +110,59 @@ The PIF Engine:
 
 ---
 
-## 6. Directory Structure (To be scaffolded)
+## 6. Project Implementation Structure
 ```
 root-fix/
 ├── architecture.md               # System architectural documentation (this file)
 ├── build.gradle.kts              # Root build configuration
 ├── settings.gradle.kts           # Gradle project settings
 ├── gradle/
-│   └── wrapper/                  # Gradle wrapper files
+│   └── wrapper/                  # Gradle wrapper (Gradle 9.7.1 / JDK 17)
 ├── app/
-│   ├── build.gradle.kts          # Application module configuration
+│   ├── build.gradle.kts          # App dependencies: Compose, Material3, libsu 5.2.2, WorkManager, OkHttp
 │   └── src/
 │       └── main/
 │           ├── AndroidManifest.xml
 │           ├── java/com/rootfix/app/
-│           │   ├── RootFixApp.kt               # Application entrypoint & libsu init
+│           │   ├── RootFixApp.kt               # App entrypoint, libsu initialization
 │           │   ├── data/
-│           │   │   ├── model/                  # Data models (Module, PifProfile, etc.)
-│           │   │   └── repository/             # MagiskRepo, PifRepo, RootExecutor
+│           │   │   ├── model/
+│           │   │   │   ├── RootStatus.kt       # Device root and Magisk version info
+│           │   │   │   ├── MagiskModule.kt     # Magisk module metadata & toggle states
+│           │   │   │   └── PifProfile.kt       # PIF / Fingerprint configuration model
+│           │   │   └── repository/
+│           │   │       ├── RootExecutor.kt     # Core libsu runner & atomic file I/O
+│           │   │       ├── MagiskRepository.kt # Module inspection & management
+│           │   │       └── PifRepository.kt    # PIF reader, writer, remote fetcher, GMS reloader
 │           │   ├── service/
-│           │   │   ├── RootIpcService.kt       # libsu RootService for background IPC
-│           │   │   └── PifSyncWorker.kt        # WorkManager periodic worker
+│           │   │   └── PifSyncWorker.kt        # WorkManager autonomous background worker
 │           │   └── ui/
-│           │       ├── MainActivity.kt         # Jetpack Compose host
-│           │       ├── theme/                  # Material 3 theme & dynamic color
-│           │       ├── dashboard/              # Status & quick action screens
-│           │       ├── modules/                # Module list & management screens
-│           │       └── pif/                    # PIF fingerprint inspection & update UI
-│           └── res/                            # Android XML resources, icons, strings
+│           │       ├── MainActivity.kt         # Jetpack Compose navigation host
+│           │       ├── dashboard/              # Status overview & fast action controls
+│           │       ├── modules/                # Module listing & toggle controls
+│           │       └── pif/                    # PIF fingerprint viewer, preset selector, and editor
+│           └── res/
 ```
 
 ---
 
-## 7. Safety, Security & Bootloop Mitigation Rules
+## 7. Device Integration Verification Status
+- **Test Device**: Samsung Galaxy J7 Duo (`SM-J720F` / `j7duolte`), Android 10 (API 29)
+- **App UID**: `10310`
+- **Magisk Root Policy**: Pre-granted in `/data/adb/magisk.db` (`policy=2`, UID 10310)
+- **Magisk Version**: 30.7 (`30.7:MAGISK:R`)
+- **Active Modules Verified**:
+  - `playintegrityfix` (`v4.7-1-inject-s`)
+  - `zygisk-detach` (`v1.24.0`)
+  - `zygisk_shamiko` (`v1.2.5`)
+- **Active Fingerprint Config**: `/data/adb/pif.prop`
+
+---
+
+## 8. Safety, Security & Bootloop Mitigation Rules
 1. **Never perform destructive reboots**: The app must never automatically force reboot without user knowledge.
 2. **Backup configs**: Before overwriting `/data/adb/pif.prop` or `/data/adb/pif.json`, create `/data/adb/pif.prop.bak`.
 3. **Atomic writes only**: Never use direct output redirection `> /data/adb/...` which can leave a truncated file on power cut or process termination.
 4. **SELinux context hygiene**: Always run `restorecon` on modified files.
 5. **Payload validation**: Ensure ZIP files passed to `magisk --install-module` contain a valid `module.prop` and `META-INF/com/google/android/update-binary`.
+
