@@ -166,3 +166,30 @@ root-fix/
 4. **SELinux context hygiene**: Always run `restorecon` on modified files.
 5. **Payload validation**: Ensure ZIP files passed to `magisk --install-module` contain a valid `module.prop` and `META-INF/com/google/android/update-binary`.
 
+---
+
+## 9. Verification & Agent Developer Guide
+
+### 9.1 On-Device Verification Results
+- **Dashboard Screen**: Displays verified root privilege status, Magisk 30.7 details, SELinux enforcing state, active PIF fingerprint, and autonomous sync state.
+- **PIF Autopilot Screen**: Lists built-in tested fingerprint presets (Pixel 9, Pixel 8a, Pixel 7 Pro, Xiaomi 13), allows online profile retrieval, manual profile editing, and performs atomic prop file replacement with automatic `.bak` backup and GMS restart without full device reboot.
+- **Magisk Modules Screen**: Accurately queries and displays all installed Magisk modules (`playintegrityfix`, `zygisk_shamiko`, `zygisk-detach`), with interactive toggle controls (`disable` marker management) and uninstall marking (`remove` marker management).
+
+### 9.2 Instructions for Future Agents
+When modifying or extending RootFix:
+1. **Root Operations**: Always route root commands through `RootExecutor` rather than raw `Runtime.exec`. `RootExecutor` handles `libsu` shell lifecycle and output streaming.
+2. **Configuration Writes**: Always use `RootExecutor.writeFileAtomically()`. It guarantees atomic file swapping, permission setting (`chmod 644`), and SELinux relabeling (`restorecon`).
+3. **Build & Test**:
+   ```bash
+   # Build debug APK
+   ./gradlew assembleDebug
+
+   # Deploy to connected test device
+   adb install -r app/build/outputs/apk/debug/app-debug.apk
+
+   # Restart app
+   adb shell am force-stop com.rootfix.app
+   adb shell am start -n com.rootfix.app/.ui.MainActivity
+   ```
+4. **Tracking Changes**: Maintain architectural updates in this document whenever introducing new repositories, workers, or module handlers.
+
