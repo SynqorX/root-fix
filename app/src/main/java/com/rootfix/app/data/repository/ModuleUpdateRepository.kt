@@ -100,6 +100,16 @@ class ModuleUpdateRepository(
             category = "Play Integrity",
             repoOwner = "daboynb",
             repoName = "PlayIntegrityNEXT"
+        ),
+        TrackedModule(
+            id = "yurikey",
+            name = "Yurikey Manager",
+            author = "Yurii0307 (Yurikey Dev)",
+            description = "A systemless module to get Strong Integrity easily with automated keybox, target config, and PIF.",
+            category = "Keybox & Integrity",
+            repoOwner = "Yurii0307",
+            repoName = "yurikey",
+            updateJsonUrl = "https://raw.githubusercontent.com/Yurii0307/yurikey/main/update.json"
         )
     )
 
@@ -141,6 +151,7 @@ class ModuleUpdateRepository(
                 }
                 "zygisksu", "zygisknext" -> installedMap["zygisksu"] ?: installedMap["zygisknext"]
                 "tricky_store" -> installedMap["tricky_store"] ?: installedMap["ta_utl"]
+                "yurikey" -> installedMap["yurikey"] ?: installedMap["yuri_key"]
                 else -> installedMap[key]
             }
 

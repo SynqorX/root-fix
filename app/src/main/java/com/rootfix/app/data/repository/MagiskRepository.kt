@@ -155,6 +155,7 @@ class MagiskRepository {
             "playintegrity" -> listOf("playintegrity", "integrity_box")
             "zygisknext" -> listOf("zygisksu", "zygisknext")
             "zygisksu" -> listOf("zygisksu", "zygisknext")
+            "yurikey" -> listOf("Yurikey", "yurikey")
             else -> listOf(moduleId)
         }
         val cmd = candidateIds.joinToString(" ; ") { id ->
@@ -172,6 +173,7 @@ class MagiskRepository {
             "zygisksu" -> listOf("zygisksu", "zygisknext")
             "tricky_store" -> listOf("tricky_store", "TA_utl", "ta_utl")
             "ta_utl" -> listOf("TA_utl", "ta_utl", "tricky_store")
+            "yurikey" -> listOf("Yurikey", "yurikey")
             else -> listOf(moduleId)
         }
 
