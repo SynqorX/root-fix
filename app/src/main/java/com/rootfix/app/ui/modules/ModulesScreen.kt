@@ -7,6 +7,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -1116,19 +1117,24 @@ fun ModulesScreen(
                             shape = RoundedCornerShape(8.dp),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .heightIn(max = 280.dp)
+                                .heightIn(min = 140.dp, max = 380.dp)
                         ) {
+                            val vScroll = rememberScrollState()
+                            val hScroll = rememberScrollState()
                             Box(
                                 modifier = Modifier
+                                    .fillMaxWidth()
                                     .padding(10.dp)
-                                    .verticalScroll(rememberScrollState())
+                                    .verticalScroll(vScroll)
+                                    .horizontalScroll(hScroll)
                             ) {
                                 Text(
                                     text = actionLogs,
                                     fontSize = 11.sp,
                                     fontFamily = FontFamily.Monospace,
                                     color = AccentCyan,
-                                    lineHeight = 15.sp
+                                    lineHeight = 16.sp,
+                                    softWrap = false
                                 )
                             }
                         }
