@@ -306,7 +306,7 @@ class ModuleUpdateRepository(
     }
 
     /**
-     * Fetches up to 15 past releases from GitHub Releases API for version selection.
+     * Fetches all past releases (up to 500 across pages) from GitHub Releases API for version selection.
      */
     suspend fun fetchModuleReleaseHistory(module: TrackedModule): List<ModuleReleaseInfo> = withContext(Dispatchers.IO) {
         val list = mutableListOf<ModuleReleaseInfo>()
@@ -315,26 +315,33 @@ class ModuleUpdateRepository(
 
         if (!owner.isNullOrBlank() && !repo.isNullOrBlank()) {
             try {
-                val url = "https://api.github.com/repos/$owner/$repo/releases?per_page=15"
-                val request = Request.Builder()
-                    .url(url)
-                    .header("User-Agent", "RootFix/1.0 (Android)")
-                    .header("Accept", "application/vnd.github.v3+json")
-                    .build()
+                // Paginate up to 5 pages with per_page=100 (up to 500 releases)
+                for (page in 1..5) {
+                    val url = "https://api.github.com/repos/$owner/$repo/releases?per_page=100&page=$page"
+                    val request = Request.Builder()
+                        .url(url)
+                        .header("User-Agent", "RootFix/1.0 (Android)")
+                        .header("Accept", "application/vnd.github.v3+json")
+                        .build()
 
-                val response = httpClient.newCall(request).execute()
-                if (response.isSuccessful) {
+                    val response = httpClient.newCall(request).execute()
+                    if (!response.isSuccessful) break
+
                     val body = response.body?.string()
-                    if (!body.isNullOrBlank()) {
-                        val arr = JSONArray(body)
-                        for (i in 0 until arr.length()) {
-                            val json = arr.getJSONObject(i)
-                            val rel = parseGitHubReleaseJson(json)
-                            if (rel != null && rel.primaryZipAsset != null) {
-                                list.add(rel)
-                            }
+                    if (body.isNullOrBlank()) break
+
+                    val arr = JSONArray(body)
+                    if (arr.length() == 0) break
+
+                    for (i in 0 until arr.length()) {
+                        val json = arr.getJSONObject(i)
+                        val rel = parseGitHubReleaseJson(json)
+                        if (rel != null && rel.primaryZipAsset != null) {
+                            list.add(rel)
                         }
                     }
+
+                    if (arr.length() < 100) break
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -347,6 +354,117 @@ class ModuleUpdateRepository(
             target.latestRelease?.let { if (it.primaryZipAsset != null) list.add(it) }
         }
         list
+    }
+
+    /**
+     * Attempts to resolve and construct a release for ANY custom tag (e.g. "v2", "2.0", "v1.0")
+     * or a direct HTTP/HTTPS URL to a .zip module file.
+     */
+    suspend fun fetchReleaseByCustomTagOrUrl(module: TrackedModule, input: String): ModuleReleaseInfo? = withContext(Dispatchers.IO) {
+        val clean = input.trim()
+        if (clean.isBlank()) return@withContext null
+
+        // 1. Direct URL (http:// or https://)
+        if (clean.startsWith("http://", ignoreCase = true) || clean.startsWith("https://", ignoreCase = true)) {
+            val rawName = clean.substringAfterLast('/').substringBefore('?')
+            val fileName = if (rawName.endsWith(".zip", ignoreCase = true)) rawName else "${module.id}_custom.zip"
+            return@withContext ModuleReleaseInfo(
+                tagName = "custom",
+                versionName = fileName.removeSuffix(".zip"),
+                versionCode = null,
+                releaseNotes = "Custom direct URL installation from: $clean",
+                publishedAt = "",
+                htmlUrl = clean,
+                assets = listOf(ModuleReleaseAsset(fileName, clean, 0L)),
+                primaryZipAsset = ModuleReleaseAsset(fileName, clean, 0L)
+            )
+        }
+
+        val owner = module.repoOwner
+        val repo = module.repoName
+        if (owner.isNullOrBlank() || repo.isNullOrBlank()) {
+            return@withContext null
+        }
+
+        // 2. Candidate tag names against GitHub Releases API: /releases/tags/{tag}
+        val tagCandidates = linkedSetOf(
+            clean,
+            if (clean.startsWith("v", ignoreCase = true)) clean.substring(1) else "v$clean",
+            if (!clean.contains(".")) "$clean.0" else clean,
+            if (clean.startsWith("v", ignoreCase = true)) "${clean}.0" else "v$clean.0",
+            clean.lowercase(),
+            clean.uppercase()
+        )
+
+        for (tag in tagCandidates) {
+            try {
+                val url = "https://api.github.com/repos/$owner/$repo/releases/tags/$tag"
+                val request = Request.Builder()
+                    .url(url)
+                    .header("User-Agent", "RootFix/1.0 (Android)")
+                    .header("Accept", "application/vnd.github.v3+json")
+                    .build()
+
+                val response = httpClient.newCall(request).execute()
+                if (response.isSuccessful) {
+                    val body = response.body?.string()
+                    if (!body.isNullOrBlank()) {
+                        val rel = parseGitHubReleaseJson(JSONObject(body))
+                        if (rel != null && rel.primaryZipAsset != null) {
+                            return@withContext rel
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                // Try next tag candidate
+            }
+        }
+
+        // 3. Fallback: Check if the tag exists on GitHub ref/tags
+        for (tag in tagCandidates) {
+            try {
+                val tagUrl = "https://api.github.com/repos/$owner/$repo/git/ref/tags/$tag"
+                val tagReq = Request.Builder()
+                    .url(tagUrl)
+                    .header("User-Agent", "RootFix/1.0 (Android)")
+                    .header("Accept", "application/vnd.github.v3+json")
+                    .build()
+                val tagResp = httpClient.newCall(tagReq).execute()
+                if (tagResp.isSuccessful) {
+                    // Tag exists! Test probable release assets URLs on GitHub releases download
+                    val cleanModName = module.name.substringBefore(' ').trim()
+                    val candidateFilenames = listOf(
+                        "${tag}-${cleanModName}.zip",
+                        "${cleanModName}-${tag}.zip",
+                        "${cleanModName}_${tag}.zip",
+                        "${module.id}-${tag}.zip",
+                        "${module.id}_${tag}.zip",
+                        "${tag}.zip"
+                    )
+                    for (fn in candidateFilenames) {
+                        val dlUrl = "https://github.com/$owner/$repo/releases/download/$tag/$fn"
+                        val headReq = Request.Builder().url(dlUrl).head().build()
+                        val headResp = httpClient.newCall(headReq).execute()
+                        if (headResp.isSuccessful || headResp.code in listOf(301, 302, 307, 308)) {
+                            return@withContext ModuleReleaseInfo(
+                                tagName = tag,
+                                versionName = tag,
+                                versionCode = null,
+                                releaseNotes = "Resolved via GitHub tag $tag",
+                                publishedAt = "",
+                                htmlUrl = "https://github.com/$owner/$repo/releases/tag/$tag",
+                                assets = listOf(ModuleReleaseAsset(fn, dlUrl, 0L)),
+                                primaryZipAsset = ModuleReleaseAsset(fn, dlUrl, 0L)
+                            )
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                // Continue
+            }
+        }
+
+        null
     }
 
     private fun fetchUpdateJsonRelease(updateJsonUrl: String): ModuleReleaseInfo? {
@@ -444,7 +562,7 @@ class ModuleUpdateRepository(
         var owner: String? = null
         var repo: String? = null
         var updateJsonUrl: String? = null
-        var customId = ""
+        var customId: String
 
         if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
             if (trimmed.contains("github.com/")) {

@@ -18,6 +18,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.rootfix.app.data.model.InstallProgress
@@ -76,6 +77,9 @@ fun ModulesScreen(
     var versionPickerModule by remember { mutableStateOf<TrackedModule?>(null) }
     var moduleReleases by remember { mutableStateOf<List<com.rootfix.app.data.model.ModuleReleaseInfo>>(emptyList()) }
     var isLoadingReleases by remember { mutableStateOf(false) }
+    var versionSearchQuery by remember { mutableStateOf("") }
+    var isSearchingCustomVersion by remember { mutableStateOf(false) }
+    var customVersionError by remember { mutableStateOf<String?>(null) }
 
     // Repository removal confirmation state
     var repoPendingRemoval by remember { mutableStateOf<TrackedModule?>(null) }
@@ -97,6 +101,9 @@ fun ModulesScreen(
     fun openVersionPicker(module: TrackedModule) {
         scope.launch {
             versionPickerModule = module
+            versionSearchQuery = ""
+            customVersionError = null
+            isSearchingCustomVersion = false
             isLoadingReleases = true
             moduleReleases = emptyList()
             val list = repo.fetchModuleReleaseHistory(module)
@@ -1195,9 +1202,22 @@ fun ModulesScreen(
         // Version Selection Dialog
         if (versionPickerModule != null) {
             val mod = versionPickerModule!!
+            val cleanQuery = versionSearchQuery.trim()
+            val filteredReleases = remember(moduleReleases, cleanQuery) {
+                if (cleanQuery.isBlank()) {
+                    moduleReleases
+                } else {
+                    moduleReleases.filter { rel ->
+                        rel.tagName.contains(cleanQuery, ignoreCase = true) ||
+                        rel.versionName.contains(cleanQuery, ignoreCase = true) ||
+                        (rel.primaryZipAsset?.name?.contains(cleanQuery, ignoreCase = true) == true)
+                    }
+                }
+            }
+
             AlertDialog(
                 onDismissRequest = {
-                    if (!isLoadingReleases) versionPickerModule = null
+                    if (!isLoadingReleases && !isSearchingCustomVersion) versionPickerModule = null
                 },
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1205,32 +1225,151 @@ fun ModulesScreen(
                         Spacer(modifier = Modifier.width(8.dp))
                         Column {
                             Text(mod.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                            Text("Select Version to Install", fontSize = 12.sp, color = TextSecondary)
+                            Text("Select or enter ANY version to install", fontSize = 12.sp, color = TextSecondary)
                         }
                     }
                 },
                 text = {
-                    Box(modifier = Modifier.fillMaxWidth().heightIn(max = 400.dp)) {
+                    Column(modifier = Modifier.fillMaxWidth().heightIn(max = 480.dp)) {
+                        // Search / Custom Version Tag or URL input
+                        OutlinedTextField(
+                            value = versionSearchQuery,
+                            onValueChange = {
+                                versionSearchQuery = it
+                                customVersionError = null
+                            },
+                            placeholder = { Text("Filter or enter version/tag (e.g. v2, 1.0)", fontSize = 12.sp) },
+                            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                            trailingIcon = {
+                                if (versionSearchQuery.isNotBlank()) {
+                                    IconButton(onClick = { versionSearchQuery = ""; customVersionError = null }, modifier = Modifier.size(24.dp)) {
+                                        Icon(Icons.Default.Close, contentDescription = "Clear", modifier = Modifier.size(14.dp))
+                                    }
+                                }
+                            },
+                            singleLine = true,
+                            textStyle = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        // Action banner to install arbitrary custom tag or direct URL
+                        if (cleanQuery.isNotBlank()) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Surface(
+                                color = AccentCyan.copy(alpha = 0.12f),
+                                shape = RoundedCornerShape(8.dp),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, AccentCyan.copy(alpha = 0.35f)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "Install Version: \"$cleanQuery\"",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = AccentCyan
+                                        )
+                                        Text(
+                                            text = "Fetch tag from GitHub or download directly",
+                                            fontSize = 10.sp,
+                                            color = TextSecondary
+                                        )
+                                    }
+                                    Button(
+                                        onClick = {
+                                            val existing = moduleReleases.firstOrNull {
+                                                it.tagName.equals(cleanQuery, ignoreCase = true) ||
+                                                it.tagName.equals("v$cleanQuery", ignoreCase = true) ||
+                                                it.versionName.equals(cleanQuery, ignoreCase = true)
+                                            }
+                                            if (existing != null) {
+                                                startInstallSpecificRelease(mod, existing)
+                                            } else {
+                                                scope.launch {
+                                                    isSearchingCustomVersion = true
+                                                    customVersionError = null
+                                                    val rel = repo.fetchReleaseByCustomTagOrUrl(mod, cleanQuery)
+                                                    isSearchingCustomVersion = false
+                                                    if (rel != null) {
+                                                        startInstallSpecificRelease(mod, rel)
+                                                    } else {
+                                                        customVersionError = "Version/Tag '$cleanQuery' not found on GitHub. Check the tag or provide a direct .zip URL."
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        enabled = !isSearchingCustomVersion,
+                                        colors = ButtonDefaults.buttonColors(containerColor = PrimaryEmerald),
+                                        shape = RoundedCornerShape(8.dp),
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                        modifier = Modifier.height(28.dp)
+                                    ) {
+                                        if (isSearchingCustomVersion) {
+                                            CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = DarkBackground)
+                                        } else {
+                                            Text("Install", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = DarkBackground)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        if (customVersionError != null) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = customVersionError!!,
+                                color = DangerRed,
+                                fontSize = 11.sp,
+                                modifier = Modifier.padding(horizontal = 4.dp)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
                         if (isLoadingReleases) {
                             Column(
-                                modifier = Modifier.fillMaxWidth().padding(32.dp),
+                                modifier = Modifier.fillMaxWidth().weight(1f, fill = false).padding(24.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally,
                                 verticalArrangement = Arrangement.Center
                             ) {
                                 CircularProgressIndicator(color = AccentCyan)
-                                Spacer(modifier = Modifier.height(12.dp))
-                                Text("Fetching available releases from GitHub...", fontSize = 12.sp, color = TextSecondary)
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Text("Fetching full release history from GitHub...", fontSize = 12.sp, color = TextSecondary)
                             }
-                        } else if (moduleReleases.isEmpty()) {
-                            Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
-                                Text("No release versions found for this repository.", color = TextSecondary, fontSize = 13.sp)
+                        } else if (filteredReleases.isEmpty()) {
+                            Box(
+                                modifier = Modifier.fillMaxWidth().weight(1f, fill = false).padding(24.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = if (moduleReleases.isEmpty()) "No releases found for this repository." else "No releases match \"$cleanQuery\". Use 'Install Version' above to fetch any tag.",
+                                    color = TextSecondary,
+                                    fontSize = 12.sp,
+                                    textAlign = TextAlign.Center
+                                )
                             }
                         } else {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp, vertical = 2.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = "${filteredReleases.size} version(s) available",
+                                    fontSize = 11.sp,
+                                    color = TextSecondary
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
                             LazyColumn(
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                items(moduleReleases) { rel ->
+                                items(filteredReleases) { rel ->
                                     val isInstalledVersion = mod.installedVersion?.let { inst ->
                                         inst.contains(rel.tagName, ignoreCase = true) || rel.tagName.contains(inst, ignoreCase = true)
                                     } ?: false
