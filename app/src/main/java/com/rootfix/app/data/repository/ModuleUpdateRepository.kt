@@ -120,6 +120,16 @@ class ModuleUpdateRepository(
             repoOwner = "dpejoh",
             repoName = "specter",
             updateJsonUrl = "https://raw.githubusercontent.com/dpejoh/specter/main/update.json"
+        ),
+        TrackedModule(
+            id = "teesim",
+            name = "TEESimulator",
+            author = "JingMatrix",
+            description = "Software simulation for Android hardware-backed key pairs with reference KeyMint and key attestation.",
+            category = "Keybox & Attestation",
+            repoOwner = "JingMatrix",
+            repoName = "TEESimulator",
+            updateJsonUrl = "https://raw.githubusercontent.com/JingMatrix/TEESimulator/dev/module/update.json"
         )
     )
 
@@ -163,6 +173,7 @@ class ModuleUpdateRepository(
                 "tricky_store" -> installedMap["tricky_store"] ?: installedMap["ta_utl"]
                 "yurikey" -> installedMap["yurikey"] ?: installedMap["yuri_key"]
                 "specter" -> installedMap["specter"] ?: installedMap["Specter"]
+                "teesim" -> installedMap["teesim"] ?: installedMap["TEESimulator"] ?: installedMap["teesimulator"]
                 else -> installedMap[key]
             }
 
@@ -175,6 +186,8 @@ class ModuleUpdateRepository(
                 installedVersion = installed?.version,
                 installedVersionCode = installed?.versionCode,
                 hasAction = installed?.hasAction ?: false,
+                hasWebUi = installed?.hasWebUi ?: false,
+                availableScripts = installed?.availableScripts ?: emptyList(),
                 // Inherit updateJson from installed module if present
                 updateJsonUrl = installed?.updateJson?.ifBlank { null } ?: item.updateJsonUrl
             )
@@ -195,6 +208,8 @@ class ModuleUpdateRepository(
                 installedVersion = installed?.version,
                 installedVersionCode = installed?.versionCode,
                 hasAction = installed?.hasAction ?: false,
+                hasWebUi = installed?.hasWebUi ?: false,
+                availableScripts = installed?.availableScripts ?: emptyList(),
                 isCustom = true
             )
             combinedMap[key] = module
@@ -215,7 +230,9 @@ class ModuleUpdateRepository(
                     installedVersion = mod.version,
                     installedVersionCode = mod.versionCode,
                     isInstalled = true,
-                    hasAction = mod.hasAction
+                    hasAction = mod.hasAction,
+                    hasWebUi = mod.hasWebUi,
+                    availableScripts = mod.availableScripts
                 )
             }
         }

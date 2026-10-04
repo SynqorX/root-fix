@@ -33,6 +33,8 @@ data class TrackedModule(
     val hasUpdate: Boolean = false,
     val isCustom: Boolean = false,
     val hasAction: Boolean = false,
+    val hasWebUi: Boolean = false,
+    val availableScripts: List<ModuleScriptInfo> = emptyList(),
     val lastChecked: Long = 0L
 ) {
     val githubSlug: String?

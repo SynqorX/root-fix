@@ -1,6 +1,8 @@
 package com.rootfix.app.data.repository
 
+import android.content.Context
 import com.rootfix.app.data.model.MagiskModule
+import com.rootfix.app.data.model.ModuleScriptInfo
 import com.rootfix.app.data.model.RootStatus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -92,6 +94,10 @@ class MagiskRepository {
                 "test -f \"/data/adb/modules/$trimmedDir/action.sh\" -a -s \"/data/adb/modules/$trimmedDir/action.sh\" " +
                 "-o -f \"/data/adb/modules_update/$trimmedDir/action.sh\" -a -s \"/data/adb/modules_update/$trimmedDir/action.sh\""
             )
+            val (webUiResult, _) = RootExecutor.execute(
+                "test -f \"/data/adb/modules/$trimmedDir/webroot/index.html\" -o -f \"/data/adb/modules_update/$trimmedDir/webroot/index.html\""
+            )
+            val availableScripts = getModuleScripts(trimmedDir)
 
             modules.add(
                 MagiskModule(
@@ -104,7 +110,9 @@ class MagiskRepository {
                     updateJson = updateJson,
                     isEnabled = !disabledResult,
                     isRemovePending = removeResult,
-                    hasAction = actionResult
+                    hasAction = actionResult,
+                    hasWebUi = webUiResult,
+                    availableScripts = availableScripts
                 )
             )
         }
@@ -157,6 +165,7 @@ class MagiskRepository {
             "zygisksu" -> listOf("zygisksu", "zygisknext")
             "yurikey" -> listOf("Yurikey", "yurikey")
             "specter" -> listOf("specter", "Specter")
+            "teesim", "teesimulator" -> listOf("teesim", "TEESimulator")
             else -> listOf(moduleId)
         }
         val cmd = candidateIds.joinToString(" ; ") { id ->
@@ -176,6 +185,7 @@ class MagiskRepository {
             "ta_utl" -> listOf("TA_utl", "ta_utl", "tricky_store")
             "yurikey" -> listOf("Yurikey", "yurikey")
             "specter" -> listOf("specter", "Specter")
+            "teesim", "teesimulator" -> listOf("teesim", "TEESimulator")
             else -> listOf(moduleId)
         }
 
@@ -200,6 +210,138 @@ class MagiskRepository {
         val dir = actionScript.substringBeforeLast('/')
         val (success, output) = RootExecutor.execute("cd \"$dir\" && sh \"$actionScript\"")
         Pair(success, output.joinToString("\n"))
+    }
+
+    suspend fun getModuleScripts(moduleId: String): List<ModuleScriptInfo> = withContext(Dispatchers.IO) {
+        val scripts = mutableListOf<ModuleScriptInfo>()
+        val candidateDirs = listOf("/data/adb/modules/$moduleId", "/data/adb/modules_update/$moduleId")
+        var activeDir: String? = null
+        for (d in candidateDirs) {
+            val (dirExists, _) = RootExecutor.execute("test -d \"$d\"")
+            if (dirExists) {
+                activeDir = d
+                break
+            }
+        }
+        if (activeDir == null) return@withContext emptyList()
+
+        val findCmd = "find \"$activeDir\" -maxdepth 2 -type f -name \"*.sh\" ! -name \"uninstall.sh\" ! -name \"common_*.sh\" ! -path \"*/lib/*\" ! -path \"*/deps/*\" ! -path \"*/webroot/*\" 2>/dev/null | sort"
+        val (_, lines) = RootExecutor.execute(findCmd)
+
+        for (path in lines) {
+            val trimmedPath = path.trim()
+            if (trimmedPath.isBlank()) continue
+            scripts.add(resolveScriptInfo(activeDir, trimmedPath))
+        }
+
+        scripts.sortedWith(compareBy({ it.category != "Feature" }, { it.name }))
+    }
+
+    private fun resolveScriptInfo(modDir: String, fullPath: String): ModuleScriptInfo {
+        val relPath = fullPath.removePrefix("$modDir/").trimStart('/')
+        val fileName = fullPath.substringAfterLast('/')
+
+        val (name, category) = when (relPath) {
+            "features/kill_play_store.sh" -> "Kill Google Play Store" to "Feature"
+            "features/kill_all.sh" -> "Kill Play Store & Target Apps" to "Feature"
+            "features/target.sh" -> "Sync App Targeting (target.txt)" to "Feature"
+            "features/auto_target.sh" -> "Auto-detect Banking Targets" to "Feature"
+            "features/keybox.sh" -> "Sync / Update Keybox" to "Keybox"
+            "features/keybox_info.sh" -> "Check Keybox Details" to "Keybox"
+            "features/keystore_info.sh" -> "Keystore Diagnostics" to "Keybox"
+            "features/teesim_mode.sh" -> "Toggle TEESimulator Mode" to "Attestation"
+            "features/pif.sh" -> "Sync Play Integrity Fix Props" to "Play Integrity"
+            "features/pif_props.sh" -> "Inspect PIF Props" to "Play Integrity"
+            "features/rom_fingerprint.sh" -> "Sync ROM Fingerprint" to "Spoofing"
+            "features/security_patch.sh" -> "Update Security Patch Level" to "Spoofing"
+            "features/boot_state_props.sh" -> "Sync Boot State Props" to "Spoofing"
+            "features/boot_hash.sh" -> "Sync Boot Hash" to "Spoofing"
+            "features/crom_props.sh" -> "Sync Custom ROM Props" to "Spoofing"
+            "features/widevine.sh" -> "Configure Widevine DRM" to "DRM"
+            "features/monet.sh" -> "Toggle Monet Theming" to "UI"
+            "features/export_logs.sh" -> "Export Diagnostics & Logs" to "Diagnostics"
+            "features/debug.sh" -> "Run Module Debug Diagnostics" to "Diagnostics"
+            "features/app_info.sh" -> "Inspect App Target Info" to "Diagnostics"
+            "features/restore_defaults.sh" -> "Reset Module to Defaults" to "Maintenance"
+            "features/restore_backups.sh" -> "Restore Backup Files" to "Maintenance"
+            "features/cleanup.sh" -> "Run Cache Cleanup" to "Maintenance"
+            "features/adb_disabler.sh" -> "Toggle ADB Detection Disabler" to "Feature"
+            "features/gms.sh" -> "Toggle GMS Profile" to "Feature"
+            "features/hma.sh" -> "Sync HMA Config" to "Feature"
+            "features/zygisk_next.sh" -> "Configure Zygisk Next" to "Feature"
+            "features/omk_restart_keymint.sh" -> "Restart KeyMint Service" to "Service"
+            "features/omk_restart_injector.sh" -> "Restart Injector Service" to "Service"
+            "features/omk_trust.sh" -> "Configure OMK Trust" to "Security"
+            "features/first_boot_setup.sh" -> "Run First Boot Setup" to "Setup"
+            "autopif4.sh" -> "Auto PIF Injector (autopif4)" to "Automation"
+            "killpi.sh" -> "Kill GMS / Play Services" to "Utility"
+            "migrate.sh" -> "Migrate Legacy Configuration" to "Maintenance"
+            "cleanup.sh" -> "Run Module Cleanup" to "Maintenance"
+            "emulated-soft-reboot.sh" -> "Emulated Soft Reboot" to "System"
+            "refresh_desc.sh" -> "Refresh Module Description" to "Utility"
+            "hotinstall.sh" -> "Run Hot Installation" to "Setup"
+            "service.sh" -> "Execute service.sh (Daemon)" to "Lifecycle"
+            "post-fs-data.sh" -> "Execute post-fs-data.sh" to "Lifecycle"
+            "action.sh" -> "Execute action.sh (Module Action)" to "Action"
+            else -> {
+                val baseName = fileName.removeSuffix(".sh").replace('_', ' ').replace('-', ' ')
+                val titleCased = baseName.split(' ')
+                    .filter { it.isNotBlank() }
+                    .joinToString(" ") { word -> word.replaceFirstChar { c -> c.uppercase() } }
+                titleCased to if (relPath.startsWith("features/")) "Feature" else "Utility"
+            }
+        }
+        return ModuleScriptInfo(
+            name = name,
+            relativePath = relPath,
+            fullPath = fullPath,
+            category = category
+        )
+    }
+
+    suspend fun executeScript(moduleId: String, scriptPath: String): Pair<Boolean, String> = withContext(Dispatchers.IO) {
+        val (exists, _) = RootExecutor.execute("test -f \"$scriptPath\" -a -s \"$scriptPath\"")
+        if (!exists) {
+            return@withContext Pair(false, "Script not found or empty: $scriptPath")
+        }
+        val dir = scriptPath.substringBeforeLast('/')
+        val modDir = if (dir.contains("/features")) dir.substringBeforeLast("/features") else dir
+        val cmd = "cd \"$modDir\" && MODDIR=\"$modDir\" sh \"$scriptPath\""
+        val (success, output) = RootExecutor.execute(cmd)
+        Pair(success, output.joinToString("\n"))
+    }
+
+    suspend fun launchModuleWebUi(context: Context, moduleId: String): Pair<Boolean, String> = withContext(Dispatchers.IO) {
+        val checkHtml = "test -f \"/data/adb/modules/$moduleId/webroot/index.html\" -o -f \"/data/adb/modules_update/$moduleId/webroot/index.html\""
+        val (htmlExists, _) = RootExecutor.execute(checkHtml)
+        if (!htmlExists) {
+            return@withContext Pair(false, "Module '$moduleId' does not have a WebUI (webroot/index.html not found).")
+        }
+
+        // Check if KSU WebUI host package is installed
+        val (pkgCheck, pkgOut) = RootExecutor.execute("pm path io.github.a13e300.ksuwebui 2>/dev/null")
+        val isKsuWebUiInstalled = pkgCheck && pkgOut.any { it.startsWith("package:") }
+
+        if (!isKsuWebUiInstalled) {
+            val (ksuCheck, ksuOut) = RootExecutor.execute("pm path me.weishu.kernelsu 2>/dev/null")
+            val isKsuInstalled = ksuCheck && ksuOut.any { it.startsWith("package:") }
+            if (isKsuInstalled) {
+                val (kLaunch, _) = RootExecutor.execute("am start -n me.weishu.kernelsu/.ui.webui.WebUIActivity -d 'ksuwebui://webui/$moduleId' 2>/dev/null")
+                if (kLaunch) return@withContext Pair(true, "WebUI launched via KernelSU manager.")
+            }
+
+            return@withContext Pair(
+                false,
+                "KernelSU WebUI host (io.github.a13e300.ksuwebui) is not installed.\nPlease install the WebUI standalone host APK to open module web interfaces."
+            )
+        }
+
+        val (launchSuccess, launchOut) = RootExecutor.execute("am start -n io.github.a13e300.ksuwebui/.WebUIActivity -d 'ksuwebui://webui/$moduleId'")
+        if (launchSuccess) {
+            Pair(true, "WebUI launched successfully.")
+        } else {
+            Pair(false, "Failed to launch WebUI: ${launchOut.joinToString("\n")}")
+        }
     }
 
     suspend fun rebootDevice(mode: RebootMode = RebootMode.STANDARD): Boolean = withContext(Dispatchers.IO) {

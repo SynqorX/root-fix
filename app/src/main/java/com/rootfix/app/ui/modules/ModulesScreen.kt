@@ -24,9 +24,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.content.Intent
+import android.net.Uri
 import com.rootfix.app.data.model.InstallProgress
 import com.rootfix.app.data.model.InstallStage
 import com.rootfix.app.data.model.MagiskModule
+import com.rootfix.app.data.model.ModuleScriptInfo
 import com.rootfix.app.data.model.TrackedModule
 import com.rootfix.app.data.repository.MagiskRepository
 import com.rootfix.app.data.repository.ModuleUpdateRepository
@@ -38,6 +41,12 @@ enum class ModulesTab {
     INSTALLED,
     UPDATES_REPOSITORY
 }
+
+data class ModuleScriptsDialogData(
+    val moduleId: String,
+    val moduleName: String,
+    val scripts: List<ModuleScriptInfo>
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -87,6 +96,34 @@ fun ModulesScreen(
     // Repository removal confirmation state
     var repoPendingRemoval by remember { mutableStateOf<TrackedModule?>(null) }
     var hasRemovedCatalogRepos by remember { mutableStateOf(false) }
+
+    // Module Scripts & WebUI state
+    var selectedModuleForScripts by remember { mutableStateOf<ModuleScriptsDialogData?>(null) }
+    var webUiErrorDialogMessage by remember { mutableStateOf<String?>(null) }
+
+    fun triggerLaunchWebUi(moduleId: String, moduleName: String) {
+        scope.launch {
+            val (success, message) = magiskRepo.launchModuleWebUi(context, moduleId)
+            if (success) {
+                Toast.makeText(context, "Opening $moduleName WebUI...", Toast.LENGTH_SHORT).show()
+            } else {
+                webUiErrorDialogMessage = message
+            }
+        }
+    }
+
+    fun triggerScriptExecution(moduleId: String, moduleName: String, script: ModuleScriptInfo) {
+        scope.launch {
+            actionModalTitle = "$moduleName: ${script.name}"
+            actionLogs = "Executing `sh ${script.relativePath}` under root...\nWorking Directory: /data/adb/modules/$moduleId\n\n"
+            isActionRunning = true
+            showActionDialog = true
+
+            val (success, logs) = magiskRepo.executeScript(moduleId, script.fullPath)
+            isActionRunning = false
+            actionLogs = if (logs.isNotBlank()) logs else if (success) "Script completed successfully (exit code 0)." else "Script finished with non-zero exit code."
+        }
+    }
 
     fun triggerModuleAction(moduleId: String, moduleName: String) {
         scope.launch {
@@ -490,9 +527,71 @@ fun ModulesScreen(
                                             )
                                         }
 
-                                        Spacer(modifier = Modifier.height(12.dp))
+                                        Spacer(modifier = Modifier.height(10.dp))
+
+                                        // Operations Bar (WebUI, Scripts, Action)
+                                        if ((module.hasWebUi || module.availableScripts.isNotEmpty() || module.hasAction) && !isRemovePending) {
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .horizontalScroll(rememberScrollState()),
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                if (module.hasWebUi) {
+                                                    FilledTonalButton(
+                                                        onClick = { triggerLaunchWebUi(module.id, module.name) },
+                                                        shape = RoundedCornerShape(8.dp),
+                                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                                        colors = ButtonDefaults.filledTonalButtonColors(
+                                                            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f),
+                                                            contentColor = MaterialTheme.colorScheme.primary
+                                                        ),
+                                                        modifier = Modifier.height(30.dp)
+                                                    ) {
+                                                        Icon(Icons.Default.Language, contentDescription = null, modifier = Modifier.size(14.dp))
+                                                        Spacer(modifier = Modifier.width(4.dp))
+                                                        Text("WebUI", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                    }
+                                                }
+
+                                                if (module.availableScripts.isNotEmpty()) {
+                                                    OutlinedButton(
+                                                        onClick = {
+                                                            selectedModuleForScripts = ModuleScriptsDialogData(
+                                                                moduleId = module.id,
+                                                                moduleName = module.name,
+                                                                scripts = module.availableScripts
+                                                            )
+                                                        },
+                                                        shape = RoundedCornerShape(8.dp),
+                                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                                        modifier = Modifier.height(30.dp)
+                                                    ) {
+                                                        Icon(Icons.Default.Terminal, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.secondary)
+                                                        Spacer(modifier = Modifier.width(4.dp))
+                                                        Text("Scripts (${module.availableScripts.size})", fontSize = 11.sp, color = MaterialTheme.colorScheme.secondary, fontWeight = FontWeight.Bold)
+                                                    }
+                                                }
+
+                                                if (module.hasAction) {
+                                                    OutlinedButton(
+                                                        onClick = { triggerModuleAction(module.id, module.name) },
+                                                        shape = RoundedCornerShape(8.dp),
+                                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                                        modifier = Modifier.height(30.dp)
+                                                    ) {
+                                                        Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
+                                                        Spacer(modifier = Modifier.width(4.dp))
+                                                        Text("Action", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                                                    }
+                                                }
+                                            }
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                        }
+
                                         HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
-                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Spacer(modifier = Modifier.height(6.dp))
 
                                         Row(
                                             modifier = Modifier.fillMaxWidth(),
@@ -506,20 +605,6 @@ fun ModulesScreen(
                                             )
 
                                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                                if (module.hasAction && !isRemovePending) {
-                                                    OutlinedButton(
-                                                        onClick = { triggerModuleAction(module.id, module.name) },
-                                                        shape = RoundedCornerShape(8.dp),
-                                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                                                        modifier = Modifier.height(30.dp)
-                                                    ) {
-                                                        Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
-                                                        Spacer(modifier = Modifier.width(3.dp))
-                                                        Text("Action", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                                                    }
-                                                    Spacer(modifier = Modifier.width(8.dp))
-                                                }
-
                                                 if (module.isRemovePending) {
                                                     TextButton(
                                                         onClick = {
@@ -695,6 +780,44 @@ fun ModulesScreen(
                                             }
 
                                             Row(verticalAlignment = Alignment.CenterVertically) {
+                                                if (module.isInstalled && module.hasWebUi) {
+                                                    FilledTonalButton(
+                                                        onClick = { triggerLaunchWebUi(module.id, module.name) },
+                                                        shape = RoundedCornerShape(8.dp),
+                                                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
+                                                        colors = ButtonDefaults.filledTonalButtonColors(
+                                                            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f),
+                                                            contentColor = MaterialTheme.colorScheme.primary
+                                                        ),
+                                                        modifier = Modifier.height(32.dp)
+                                                    ) {
+                                                        Icon(Icons.Default.Language, contentDescription = null, modifier = Modifier.size(13.dp))
+                                                        Spacer(modifier = Modifier.width(3.dp))
+                                                        Text("WebUI", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                    }
+                                                    Spacer(modifier = Modifier.width(4.dp))
+                                                }
+
+                                                if (module.isInstalled && module.availableScripts.isNotEmpty()) {
+                                                    OutlinedButton(
+                                                        onClick = {
+                                                            selectedModuleForScripts = ModuleScriptsDialogData(
+                                                                moduleId = module.id,
+                                                                moduleName = module.name,
+                                                                scripts = module.availableScripts
+                                                            )
+                                                        },
+                                                        shape = RoundedCornerShape(8.dp),
+                                                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
+                                                        modifier = Modifier.height(32.dp)
+                                                    ) {
+                                                        Icon(Icons.Default.Terminal, contentDescription = null, modifier = Modifier.size(13.dp), tint = MaterialTheme.colorScheme.secondary)
+                                                        Spacer(modifier = Modifier.width(3.dp))
+                                                        Text("Scripts", fontSize = 11.sp, color = MaterialTheme.colorScheme.secondary, fontWeight = FontWeight.Bold)
+                                                    }
+                                                    Spacer(modifier = Modifier.width(4.dp))
+                                                }
+
                                                 if (module.isInstalled && module.hasAction) {
                                                     OutlinedButton(
                                                         onClick = { triggerModuleAction(module.id, module.name) },
@@ -706,7 +829,7 @@ fun ModulesScreen(
                                                         Spacer(modifier = Modifier.width(3.dp))
                                                         Text("Action", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                                                     }
-                                                    Spacer(modifier = Modifier.width(6.dp))
+                                                    Spacer(modifier = Modifier.width(4.dp))
                                                 }
 
                                                 OutlinedButton(
@@ -818,6 +941,44 @@ fun ModulesScreen(
                                         }
 
                                         Row(verticalAlignment = Alignment.CenterVertically) {
+                                            if (module.isInstalled && module.hasWebUi) {
+                                                FilledTonalButton(
+                                                    onClick = { triggerLaunchWebUi(module.id, module.name) },
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
+                                                    colors = ButtonDefaults.filledTonalButtonColors(
+                                                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f),
+                                                        contentColor = MaterialTheme.colorScheme.primary
+                                                    ),
+                                                    modifier = Modifier.height(32.dp)
+                                                ) {
+                                                    Icon(Icons.Default.Language, contentDescription = null, modifier = Modifier.size(13.dp))
+                                                    Spacer(modifier = Modifier.width(3.dp))
+                                                    Text("WebUI", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                }
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                            }
+
+                                            if (module.isInstalled && module.availableScripts.isNotEmpty()) {
+                                                OutlinedButton(
+                                                    onClick = {
+                                                        selectedModuleForScripts = ModuleScriptsDialogData(
+                                                            moduleId = module.id,
+                                                            moduleName = module.name,
+                                                            scripts = module.availableScripts
+                                                        )
+                                                    },
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
+                                                    modifier = Modifier.height(32.dp)
+                                                ) {
+                                                    Icon(Icons.Default.Terminal, contentDescription = null, modifier = Modifier.size(13.dp), tint = MaterialTheme.colorScheme.secondary)
+                                                    Spacer(modifier = Modifier.width(3.dp))
+                                                    Text("Scripts", fontSize = 11.sp, color = MaterialTheme.colorScheme.secondary, fontWeight = FontWeight.Bold)
+                                                }
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                            }
+
                                             if (module.isInstalled && module.hasAction) {
                                                 OutlinedButton(
                                                     onClick = { triggerModuleAction(module.id, module.name) },
@@ -1146,6 +1307,262 @@ fun ModulesScreen(
                         enabled = !isActionRunning
                     ) {
                         Text(if (isActionRunning) "Running..." else "Done")
+                    }
+                }
+            )
+        }
+
+        // WebUI Not Available Dialog
+        if (webUiErrorDialogMessage != null) {
+            val errorMsg = webUiErrorDialogMessage!!
+            val isHostMissing = errorMsg.contains("KernelSU WebUI host", ignoreCase = true) || errorMsg.contains("io.github.a13e300.ksuwebui", ignoreCase = true)
+            AlertDialog(
+                onDismissRequest = { webUiErrorDialogMessage = null },
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Language, contentDescription = null, tint = WarningAmber, modifier = Modifier.size(24.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("WebUI Host Required", fontWeight = FontWeight.Bold)
+                    }
+                },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            text = errorMsg,
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        if (isHostMissing) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "KernelSU WebUI is an open-source companion app that safely bridges root module web interfaces to the system.",
+                                fontSize = 12.sp,
+                                color = TextSecondary
+                            )
+                        }
+                    }
+                },
+                confirmButton = {
+                    if (isHostMissing) {
+                        Button(
+                            onClick = {
+                                webUiErrorDialogMessage = null
+                                try {
+                                    val browserIntent = Intent(
+                                        Intent.ACTION_VIEW,
+                                        Uri.parse("https://github.com/5ec1cff/KernelSU-WebUI/releases")
+                                    ).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
+                                    context.startActivity(browserIntent)
+                                } catch (e: Exception) {
+                                    Toast.makeText(context, "Cannot open browser: ${e.message}", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        ) {
+                            Text("Download Host APK")
+                        }
+                    } else {
+                        Button(onClick = { webUiErrorDialogMessage = null }) {
+                            Text("OK")
+                        }
+                    }
+                },
+                dismissButton = {
+                    if (isHostMissing) {
+                        TextButton(onClick = { webUiErrorDialogMessage = null }) {
+                            Text("Cancel")
+                        }
+                    }
+                }
+            )
+        }
+
+        // Module Scripts & Tools Dialog
+        if (selectedModuleForScripts != null) {
+            val data = selectedModuleForScripts!!
+            var scriptSearchQuery by remember { mutableStateOf("") }
+            var selectedCategory by remember { mutableStateOf("All") }
+
+            val categories = remember(data.scripts) {
+                listOf("All") + data.scripts.map { it.category }.distinct().sorted()
+            }
+
+            val filteredScripts = remember(data.scripts, scriptSearchQuery, selectedCategory) {
+                data.scripts.filter { script ->
+                    val matchesCategory = (selectedCategory == "All" || script.category.equals(selectedCategory, ignoreCase = true))
+                    val matchesQuery = scriptSearchQuery.isBlank() ||
+                        script.name.contains(scriptSearchQuery, ignoreCase = true) ||
+                        script.relativePath.contains(scriptSearchQuery, ignoreCase = true)
+                    matchesCategory && matchesQuery
+                }
+            }
+
+            AlertDialog(
+                onDismissRequest = { selectedModuleForScripts = null },
+                title = {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Default.Terminal, contentDescription = null, tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(24.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column {
+                                Text(
+                                    text = "${data.moduleName} Scripts",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 17.sp,
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = "${data.scripts.size} runnable tools found in module",
+                                    fontSize = 11.sp,
+                                    color = TextSecondary
+                                )
+                            }
+                        }
+                    }
+                },
+                text = {
+                    Column(modifier = Modifier.fillMaxWidth().heightIn(max = 480.dp)) {
+                        // Search bar
+                        if (data.scripts.size > 3) {
+                            OutlinedTextField(
+                                value = scriptSearchQuery,
+                                onValueChange = { scriptSearchQuery = it },
+                                placeholder = { Text("Filter scripts...", fontSize = 12.sp) },
+                                leadingIcon = {
+                                    Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(16.dp))
+                                },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                                shape = RoundedCornerShape(10.dp)
+                            )
+                        }
+
+                        // Category filter chips
+                        if (categories.size > 2) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState())
+                                    .padding(bottom = 10.dp),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                for (cat in categories) {
+                                    val isSelected = (cat == selectedCategory)
+                                    FilterChip(
+                                        selected = isSelected,
+                                        onClick = { selectedCategory = cat },
+                                        label = { Text(cat, fontSize = 11.sp) },
+                                        shape = RoundedCornerShape(8.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        if (filteredScripts.isEmpty()) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 32.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("No matching scripts found", color = TextSecondary, fontSize = 13.sp)
+                            }
+                        } else {
+                            LazyColumn(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                items(filteredScripts) { script ->
+                                    Surface(
+                                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                                        shape = RoundedCornerShape(10.dp),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable {
+                                                val target = selectedModuleForScripts
+                                                selectedModuleForScripts = null
+                                                if (target != null) {
+                                                    triggerScriptExecution(target.moduleId, target.moduleName, script)
+                                                }
+                                            }
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    modifier = Modifier.fillMaxWidth()
+                                                ) {
+                                                    Text(
+                                                        text = script.name,
+                                                        fontWeight = FontWeight.SemiBold,
+                                                        fontSize = 13.sp,
+                                                        color = MaterialTheme.colorScheme.onSurface,
+                                                        modifier = Modifier.weight(1f, fill = false),
+                                                        maxLines = 1,
+                                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                                    )
+                                                    Spacer(modifier = Modifier.width(6.dp))
+                                                    Surface(
+                                                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                                                        shape = RoundedCornerShape(4.dp)
+                                                    ) {
+                                                        Text(
+                                                            text = script.category,
+                                                            fontSize = 9.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = MaterialTheme.colorScheme.primary,
+                                                            maxLines = 1,
+                                                            softWrap = false,
+                                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                        )
+                                                    }
+                                                }
+                                                Spacer(modifier = Modifier.height(2.dp))
+                                                Text(
+                                                    text = script.relativePath,
+                                                    fontSize = 11.sp,
+                                                    fontFamily = FontFamily.Monospace,
+                                                    color = TextSecondary
+                                                )
+                                            }
+
+                                            IconButton(
+                                                onClick = {
+                                                    val target = selectedModuleForScripts
+                                                    selectedModuleForScripts = null
+                                                    if (target != null) {
+                                                        triggerScriptExecution(target.moduleId, target.moduleName, script)
+                                                    }
+                                                },
+                                                modifier = Modifier.size(32.dp)
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.PlayArrow,
+                                                    contentDescription = "Run",
+                                                    tint = MaterialTheme.colorScheme.primary,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { selectedModuleForScripts = null }) {
+                        Text("Close")
                     }
                 }
             )
