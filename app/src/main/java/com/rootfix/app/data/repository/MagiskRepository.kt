@@ -46,14 +46,18 @@ class MagiskRepository {
 
     suspend fun getInstalledModules(): List<MagiskModule> = withContext(Dispatchers.IO) {
         val modules = mutableListOf<MagiskModule>()
-        val (_, dirs) = RootExecutor.execute("ls -1 /data/adb/modules 2>/dev/null")
+        val (_, dirs) = RootExecutor.execute("{ ls -1 /data/adb/modules 2>/dev/null; ls -1 /data/adb/modules_update 2>/dev/null; } | sort -u")
 
         for (dirName in dirs) {
             val trimmedDir = dirName.trim()
-            if (trimmedDir.isEmpty()) continue
+            if (trimmedDir.isEmpty() || trimmedDir.startsWith(".")) continue
 
-            val modPath = "/data/adb/modules/$trimmedDir"
-            val propLines = RootExecutor.readFile("$modPath/module.prop") ?: continue
+            var modPath = "/data/adb/modules/$trimmedDir"
+            var propLines = RootExecutor.readFile("$modPath/module.prop")
+            if (propLines == null) {
+                modPath = "/data/adb/modules_update/$trimmedDir"
+                propLines = RootExecutor.readFile("$modPath/module.prop") ?: continue
+            }
 
             var id = trimmedDir
             var name = trimmedDir
@@ -82,9 +86,12 @@ class MagiskRepository {
                 }
             }
 
-            val (disabledResult, _) = RootExecutor.execute("test -f \"$modPath/disable\"")
-            val (removeResult, _) = RootExecutor.execute("test -f \"$modPath/remove\"")
-            val (actionResult, _) = RootExecutor.execute("test -f \"$modPath/action.sh\"")
+            val (disabledResult, _) = RootExecutor.execute("test -f \"/data/adb/modules/$trimmedDir/disable\" -o -f \"/data/adb/modules_update/$trimmedDir/disable\"")
+            val (removeResult, _) = RootExecutor.execute("test -f \"/data/adb/modules/$trimmedDir/remove\" -o -f \"/data/adb/modules_update/$trimmedDir/remove\"")
+            val (actionResult, _) = RootExecutor.execute(
+                "test -f \"/data/adb/modules/$trimmedDir/action.sh\" -a -s \"/data/adb/modules/$trimmedDir/action.sh\" " +
+                "-o -f \"/data/adb/modules_update/$trimmedDir/action.sh\" -a -s \"/data/adb/modules_update/$trimmedDir/action.sh\""
+            )
 
             modules.add(
                 MagiskModule(
@@ -107,7 +114,7 @@ class MagiskRepository {
 
     suspend fun setModuleEnabled(moduleId: String, enabled: Boolean): Boolean = withContext(Dispatchers.IO) {
         val cmd = if (enabled) {
-            "rm -f \"/data/adb/modules/$moduleId/disable\""
+            "rm -f \"/data/adb/modules/$moduleId/disable\" \"/data/adb/modules_update/$moduleId/disable\""
         } else {
             "touch \"/data/adb/modules/$moduleId/disable\""
         }
@@ -119,7 +126,7 @@ class MagiskRepository {
         val cmd = if (remove) {
             "touch \"/data/adb/modules/$moduleId/remove\""
         } else {
-            "rm -f \"/data/adb/modules/$moduleId/remove\""
+            "rm -f \"/data/adb/modules/$moduleId/remove\" \"/data/adb/modules_update/$moduleId/remove\""
         }
         val (success, _) = RootExecutor.execute(cmd)
         success
@@ -143,18 +150,51 @@ class MagiskRepository {
     }
 
     suspend fun removeModuleImmediately(moduleId: String): Boolean = withContext(Dispatchers.IO) {
-        val cmd = "test -f \"/data/adb/modules/$moduleId/uninstall.sh\" && sh \"/data/adb/modules/$moduleId/uninstall.sh\" 2>/dev/null || true; rm -rf \"/data/adb/modules/$moduleId\" \"/data/adb/modules_update/$moduleId\""
+        val candidateIds = when (moduleId.lowercase()) {
+            "integrity_box" -> listOf("playintegrity", "integrity_box")
+            "playintegrity" -> listOf("playintegrity", "integrity_box")
+            "zygisknext" -> listOf("zygisksu", "zygisknext")
+            "zygisksu" -> listOf("zygisksu", "zygisknext")
+            else -> listOf(moduleId)
+        }
+        val cmd = candidateIds.joinToString(" ; ") { id ->
+            "test -f \"/data/adb/modules/$id/uninstall.sh\" && sh \"/data/adb/modules/$id/uninstall.sh\" 2>/dev/null || true; rm -rf \"/data/adb/modules/$id\" \"/data/adb/modules_update/$id\""
+        }
         val (success, _) = RootExecutor.execute(cmd)
         success
     }
 
     suspend fun executeModuleAction(moduleId: String): Pair<Boolean, String> = withContext(Dispatchers.IO) {
-        val actionScript = "/data/adb/modules/$moduleId/action.sh"
-        val (exists, _) = RootExecutor.execute("test -f \"$actionScript\"")
-        if (!exists) {
-            return@withContext Pair(false, "No action.sh found for module: $moduleId")
+        val candidateIds = when (moduleId.lowercase()) {
+            "integrity_box" -> listOf("playintegrity", "integrity_box")
+            "playintegrity" -> listOf("playintegrity", "integrity_box")
+            "zygisknext" -> listOf("zygisksu", "zygisknext")
+            "zygisksu" -> listOf("zygisksu", "zygisknext")
+            "tricky_store" -> listOf("tricky_store", "TA_utl", "ta_utl")
+            "ta_utl" -> listOf("TA_utl", "ta_utl", "tricky_store")
+            else -> listOf(moduleId)
         }
-        val (success, output) = RootExecutor.execute("sh \"$actionScript\"")
+
+        var actionScript: String? = null
+        for (id in candidateIds) {
+            val pathUpdate = "/data/adb/modules_update/$id/action.sh"
+            if (RootExecutor.execute("test -f \"$pathUpdate\" -a -s \"$pathUpdate\"").first) {
+                actionScript = pathUpdate
+                break
+            }
+            val pathNormal = "/data/adb/modules/$id/action.sh"
+            if (RootExecutor.execute("test -f \"$pathNormal\" -a -s \"$pathNormal\"").first) {
+                actionScript = pathNormal
+                break
+            }
+        }
+
+        if (actionScript == null) {
+            return@withContext Pair(false, "No executable action.sh found for module: $moduleId")
+        }
+
+        val dir = actionScript.substringBeforeLast('/')
+        val (success, output) = RootExecutor.execute("cd \"$dir\" && sh \"$actionScript\"")
         Pair(success, output.joinToString("\n"))
     }
 }

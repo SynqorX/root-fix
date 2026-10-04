@@ -10,11 +10,6 @@ import org.json.JSONObject
 import java.io.File
 import java.util.concurrent.TimeUnit
 
-data class AutoPifDevice(
-    val model: String,
-    val product: String
-)
-
 class PifRepository {
 
     private val httpClient = OkHttpClient.Builder()
@@ -23,7 +18,6 @@ class PifRepository {
         .build()
 
     private val pifPropPath = "/data/adb/pif.prop"
-    private val autoPifScriptPath = "/data/adb/modules/playintegrityfix/autopif.sh"
 
     suspend fun getActiveProfile(): PifProfile? = withContext(Dispatchers.IO) {
         val lines = RootExecutor.readFile(pifPropPath)
@@ -69,67 +63,6 @@ class PifRepository {
             restartGms()
         }
         saved
-    }
-
-    /**
-     * Queries available Pixel Canary devices supported by autopif.sh.
-     */
-    suspend fun getAutoPifDevices(): List<AutoPifDevice> = withContext(Dispatchers.IO) {
-        val devices = mutableListOf<AutoPifDevice>()
-        val (success, lines) = RootExecutor.execute("sh \"$autoPifScriptPath\" --list 2>/dev/null")
-        if (success && lines.isNotEmpty()) {
-            val jsonLine = lines.firstOrNull { it.contains("{\"model\":") }
-            if (jsonLine != null) {
-                try {
-                    val jsonObj = JSONObject(jsonLine)
-                    val modelArr = jsonObj.optJSONArray("model") ?: JSONArray()
-                    val productArr = jsonObj.optJSONArray("product") ?: JSONArray()
-                    val len = minOf(modelArr.length(), productArr.length())
-                    for (i in 0 until len) {
-                        devices.add(
-                            AutoPifDevice(
-                                model = modelArr.getString(i),
-                                product = productArr.getString(i)
-                            )
-                        )
-                    }
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
-            }
-        }
-        devices
-    }
-
-    /**
-     * Executes autopif.sh for the given Pixel Canary device (or random if null).
-     * Enforces all 7 required spoofs upon completion and reloads GMS.
-     */
-    suspend fun runAutoPif(
-        cacheDir: File,
-        device: AutoPifDevice? = null,
-        restartGmsNow: Boolean = true
-    ): Pair<Boolean, PifProfile?> = withContext(Dispatchers.IO) {
-        val cmd = if (device != null) {
-            "MODEL=\"${device.model}\" PRODUCT=\"${device.product}\" sh \"$autoPifScriptPath\""
-        } else {
-            "sh \"$autoPifScriptPath\""
-        }
-
-        val (success, _) = RootExecutor.execute(cmd)
-        if (!success) {
-            return@withContext Pair(false, null)
-        }
-
-        // Post-process /data/adb/pif.prop to guarantee all 7 spoofs are enabled
-        val lines = RootExecutor.readFile(pifPropPath) ?: return@withContext Pair(false, null)
-        val profile = PifProfile.fromPropLines(lines, pifPropPath).withAllSpoofsEnabled()
-
-        val saved = saveProfile(cacheDir, profile)
-        if (saved && restartGmsNow) {
-            restartGms()
-        }
-        Pair(saved, profile)
     }
 
     suspend fun getAvailableProfiles(fetchRemote: Boolean = false): List<PifProfile> = withContext(Dispatchers.IO) {

@@ -21,7 +21,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.rootfix.app.data.model.KeyboxStatus
 import com.rootfix.app.data.model.PifProfile
-import com.rootfix.app.data.repository.AutoPifDevice
 import com.rootfix.app.data.repository.KeyboxRepository
 import com.rootfix.app.data.repository.PifRepository
 import com.rootfix.app.ui.extra.RootFixGlassCard
@@ -39,11 +38,8 @@ fun PifScreen(
 
     var activeProfile by remember { mutableStateOf<PifProfile?>(null) }
     var availableProfiles by remember { mutableStateOf<List<PifProfile>>(emptyList()) }
-    var autoPifDevices by remember { mutableStateOf<List<AutoPifDevice>>(emptyList()) }
-    var selectedDevice by remember { mutableStateOf<AutoPifDevice?>(null) }
     var keyboxStatus by remember { mutableStateOf<KeyboxStatus?>(null) }
     var isLoading by remember { mutableStateOf(true) }
-    var isRunningAutoPif by remember { mutableStateOf(false) }
     var isApplying by remember { mutableStateOf(false) }
     var showEditDialog by remember { mutableStateOf(false) }
 
@@ -59,10 +55,6 @@ fun PifScreen(
             isLoading = true
             activeProfile = pifRepo.getActiveProfile()
             availableProfiles = pifRepo.getAvailableProfiles(fetchRemote = false)
-            autoPifDevices = pifRepo.getAutoPifDevices()
-            if (autoPifDevices.isNotEmpty() && selectedDevice == null) {
-                selectedDevice = autoPifDevices.firstOrNull { it.model.contains("Pixel 9") } ?: autoPifDevices.first()
-            }
             keyboxStatus = keyboxRepo.getKeyboxStatus()
             isLoading = false
         }
@@ -228,105 +220,7 @@ fun PifScreen(
                 }
             }
 
-            // Section 2: Autopilot Quick Canary Fetch (AutoPIF)
-            item {
-                Text(
-                    text = "Google FlashStation Canary Autopilot",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = AccentCyan
-                )
-            }
-
-            item {
-                RootFixGlassCard(
-                    shape = RoundedCornerShape(16.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text(
-                            text = "Fetches the latest unreleased Google Pixel Canary release candidate directly from Google's FlashStation API and synchronizes /data/adb/pif.prop with all 7 spoofs enforced.",
-                            fontSize = 12.sp,
-                            color = TextSecondary,
-                            lineHeight = 16.sp
-                        )
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        if (autoPifDevices.isNotEmpty()) {
-                            Text(
-                                text = "Select Target Pixel Device:",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = TextPrimary
-                            )
-                            Spacer(modifier = Modifier.height(6.dp))
-
-                            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                items(autoPifDevices) { dev ->
-                                    val isSelected = selectedDevice?.product == dev.product
-                                    Surface(
-                                        color = if (isSelected) AccentCyan.copy(alpha = 0.25f) else MaterialTheme.colorScheme.surfaceVariant,
-                                        shape = RoundedCornerShape(8.dp),
-                                        modifier = Modifier.clickable { selectedDevice = dev }
-                                    ) {
-                                        Text(
-                                            text = dev.model,
-                                            fontSize = 11.sp,
-                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                            color = if (isSelected) AccentCyan else TextSecondary,
-                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                                        )
-                                    }
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.height(14.dp))
-                        }
-
-                        Button(
-                            onClick = {
-                                scope.launch {
-                                    isRunningAutoPif = true
-                                    Toast.makeText(context, "Running AutoPIF Canary fetch...", Toast.LENGTH_SHORT).show()
-                                    val (success, newProfile) = pifRepo.runAutoPif(
-                                        cacheDir = context.cacheDir,
-                                        device = selectedDevice,
-                                        restartGmsNow = true
-                                    )
-                                    isRunningAutoPif = false
-                                    if (success && newProfile != null) {
-                                        activeProfile = newProfile
-                                        Toast.makeText(
-                                            context,
-                                            "AutoPIF fetched ${newProfile.model} Canary! 7 spoofs enforced & GMS reloaded.",
-                                            Toast.LENGTH_LONG
-                                        ).show()
-                                    } else {
-                                        Toast.makeText(context, "AutoPIF failed to fetch Canary build.", Toast.LENGTH_SHORT).show()
-                                    }
-                                }
-                            },
-                            enabled = !isRunningAutoPif,
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                            shape = RoundedCornerShape(10.dp)
-                        ) {
-                            if (isRunningAutoPif) {
-                                CircularProgressIndicator(modifier = Modifier.size(16.dp), color = DarkBackground)
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("Fetching & Enforcing Spoofs...")
-                            } else {
-                                Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("Fetch Canary & Auto-Apply")
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Section 3: Project InfinityX Hardware Attestation & Keybox
+            // Section 2: Project InfinityX Hardware Attestation & Keybox
             item {
                 Text(
                     text = "Project InfinityX Keybox & Hardware Attestation",

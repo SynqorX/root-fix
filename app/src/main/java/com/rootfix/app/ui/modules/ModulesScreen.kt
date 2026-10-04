@@ -7,7 +7,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -692,6 +694,20 @@ fun ModulesScreen(
                                             }
 
                                             Row(verticalAlignment = Alignment.CenterVertically) {
+                                                if (module.isInstalled && module.hasAction) {
+                                                    OutlinedButton(
+                                                        onClick = { triggerModuleAction(module.id, module.name) },
+                                                        shape = RoundedCornerShape(8.dp),
+                                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                                        modifier = Modifier.height(32.dp)
+                                                    ) {
+                                                        Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
+                                                        Spacer(modifier = Modifier.width(3.dp))
+                                                        Text("Action", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                                                    }
+                                                    Spacer(modifier = Modifier.width(6.dp))
+                                                }
+
                                                 OutlinedButton(
                                                     onClick = { openVersionPicker(module) },
                                                     shape = RoundedCornerShape(8.dp),
@@ -769,14 +785,14 @@ fun ModulesScreen(
                                         verticalAlignment = Alignment.Top
                                     ) {
                                         Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = module.name,
+                                                style = MaterialTheme.typography.titleMedium,
+                                                fontWeight = FontWeight.Bold,
+                                                color = TextPrimary
+                                            )
+                                            Spacer(modifier = Modifier.height(4.dp))
                                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                                Text(
-                                                    text = module.name,
-                                                    style = MaterialTheme.typography.titleMedium,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = TextPrimary
-                                                )
-                                                Spacer(modifier = Modifier.width(8.dp))
                                                 Surface(
                                                     color = if (module.isInstalled) PrimaryEmerald.copy(alpha = 0.2f) else DarkCard,
                                                     shape = RoundedCornerShape(6.dp)
@@ -789,14 +805,15 @@ fun ModulesScreen(
                                                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                                     )
                                                 }
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text(
+                                                    text = "${module.category} • by ${module.author}",
+                                                    fontSize = 11.sp,
+                                                    color = TextSecondary,
+                                                    maxLines = 1,
+                                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                                )
                                             }
-
-                                            Spacer(modifier = Modifier.height(2.dp))
-                                            Text(
-                                                text = "${module.category} • by ${module.author}",
-                                                fontSize = 12.sp,
-                                                color = TextSecondary
-                                            )
                                         }
 
                                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1101,7 +1118,11 @@ fun ModulesScreen(
                                 .fillMaxWidth()
                                 .heightIn(max = 280.dp)
                         ) {
-                            Box(modifier = Modifier.padding(10.dp)) {
+                            Box(
+                                modifier = Modifier
+                                    .padding(10.dp)
+                                    .verticalScroll(rememberScrollState())
+                            ) {
                                 Text(
                                     text = actionLogs,
                                     fontSize = 11.sp,

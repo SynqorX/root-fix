@@ -114,6 +114,7 @@ class ModuleUpdateRepository(
         val customList = getCustomTrackedList()
         val removedIds = getRemovedCatalogIds().map { it.lowercase() }.toSet()
         val combinedMap = mutableMapOf<String, TrackedModule>()
+        val matchedInstalledIds = mutableSetOf<String>()
 
         // 1. Add curated catalog
         for (item in curatedCatalog) {
@@ -121,14 +122,30 @@ class ModuleUpdateRepository(
             if (removedIds.contains(key)) continue
 
             val installed = when (item.id) {
-                "integrity_box" -> installedMap["playintegrityfix"]?.takeIf {
-                    it.name.contains("Integrity Box", ignoreCase = true) || it.author.contains("Meow", ignoreCase = true)
-                } ?: installedMap["integrity_box"]
-                "playintegrityfix" -> installedMap["playintegrityfix"]?.takeUnless {
-                    it.name.contains("Integrity Box", ignoreCase = true) || it.author.contains("Meow", ignoreCase = true)
+                "integrity_box" -> {
+                    installedMap["playintegrity"]
+                        ?: installedMap["integrity_box"]
+                        ?: installedList.firstOrNull { mod ->
+                            val norm = java.text.Normalizer.normalize(mod.name, java.text.Normalizer.Form.NFKD)
+                            norm.contains("Integrity", ignoreCase = true) || mod.author.contains("Meow", ignoreCase = true)
+                        }
+                }
+                "playintegrityfork" -> {
+                    installedMap["playintegrityfork"]
+                        ?: installedMap["playintegrityfix"]?.takeIf { it.author.contains("osm0sis", ignoreCase = true) }
+                }
+                "playintegrityfix" -> {
+                    installedMap["playintegrityfix"]?.takeUnless {
+                        it.author.contains("osm0sis", ignoreCase = true) || it.author.contains("Meow", ignoreCase = true)
+                    }
                 }
                 "zygisksu", "zygisknext" -> installedMap["zygisksu"] ?: installedMap["zygisknext"]
+                "tricky_store" -> installedMap["tricky_store"] ?: installedMap["ta_utl"]
                 else -> installedMap[key]
+            }
+
+            if (installed != null) {
+                matchedInstalledIds.add(installed.id.lowercase())
             }
 
             val module = item.copy(
@@ -148,6 +165,9 @@ class ModuleUpdateRepository(
             if (removedIds.contains(key)) continue
 
             val installed = installedMap[key]
+            if (installed != null) {
+                matchedInstalledIds.add(installed.id.lowercase())
+            }
             val module = item.copy(
                 isInstalled = installed != null,
                 installedVersion = installed?.version,
@@ -161,7 +181,7 @@ class ModuleUpdateRepository(
         // 3. Add any installed modules that are not in catalog or custom
         for (mod in installedList) {
             val key = mod.id.lowercase()
-            if (removedIds.contains(key)) continue
+            if (removedIds.contains(key) || matchedInstalledIds.contains(key)) continue
             if (!combinedMap.containsKey(key)) {
                 combinedMap[key] = TrackedModule(
                     id = mod.id,

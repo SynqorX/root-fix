@@ -25,30 +25,23 @@ class PifSyncWorker(
         }
 
         try {
-            // Autonomous Canary fetch via autopif engine
-            Log.i(TAG, "Executing autonomous AutoPIF canary sync...")
-            val (success, profile) = pifRepo.runAutoPif(
-                cacheDir = applicationContext.cacheDir,
-                device = null, // auto-selects latest verified Canary device
-                restartGmsNow = true
-            )
-
-            if (success && profile != null) {
-                Log.i(TAG, "Autonomous sync successful: ${profile.fingerprint} with all 7 spoofs active")
-                Result.success()
-            } else {
-                // Fallback to presets if autopif script failed (e.g. offline)
-                val available = pifRepo.getAvailableProfiles(fetchRemote = true)
-                if (available.isNotEmpty()) {
-                    pifRepo.applyProfile(
-                        cacheDir = applicationContext.cacheDir,
-                        profile = available.first().withAllSpoofsEnabled(),
-                        restartGmsNow = true
-                    )
+            Log.i(TAG, "Executing autonomous PIF profile sync...")
+            val available = pifRepo.getAvailableProfiles(fetchRemote = true)
+            if (available.isNotEmpty()) {
+                val bestProfile = available.first().withAllSpoofsEnabled()
+                val applied = pifRepo.applyProfile(
+                    cacheDir = applicationContext.cacheDir,
+                    profile = bestProfile,
+                    restartGmsNow = true
+                )
+                if (applied) {
+                    Log.i(TAG, "Autonomous sync successful: ${bestProfile.fingerprint} with all 7 spoofs active")
                     Result.success()
                 } else {
                     Result.retry()
                 }
+            } else {
+                Result.retry()
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error during autonomous PIF sync", e)
