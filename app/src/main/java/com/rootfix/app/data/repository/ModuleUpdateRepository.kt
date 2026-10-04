@@ -33,6 +33,16 @@ class ModuleUpdateRepository(
      */
     private val curatedCatalog = listOf(
         TrackedModule(
+            id = "integrity_box",
+            name = "Integrity Box (Automated Keybox & PIF)",
+            author = "MEOWna (MeowDump)",
+            description = "All-in-one toolkit providing automated unrevoked keyboxes, TEE simulation, and Play Integrity bypass.",
+            category = "Keybox & Integrity",
+            repoOwner = "MeowDump",
+            repoName = "Integrity-Box",
+            updateJsonUrl = "https://raw.githubusercontent.com/MeowDump/Integrity-Box/refs/heads/main/release.json"
+        ),
+        TrackedModule(
             id = "playintegrityfix",
             name = "Play Integrity Fix [INJECT]",
             author = "chiteroman, KOWX712",
@@ -103,7 +113,16 @@ class ModuleUpdateRepository(
 
         // 1. Add curated catalog
         for (item in curatedCatalog) {
-            val installed = installedMap[item.id.lowercase()]
+            val installed = when (item.id) {
+                "integrity_box" -> installedMap["playintegrityfix"]?.takeIf {
+                    it.name.contains("Integrity Box", ignoreCase = true) || it.author.contains("Meow", ignoreCase = true)
+                } ?: installedMap["integrity_box"]
+                "playintegrityfix" -> installedMap["playintegrityfix"]?.takeUnless {
+                    it.name.contains("Integrity Box", ignoreCase = true) || it.author.contains("Meow", ignoreCase = true)
+                }
+                else -> installedMap[item.id.lowercase()]
+            }
+
             val module = item.copy(
                 isInstalled = installed != null,
                 installedVersion = installed?.version,
