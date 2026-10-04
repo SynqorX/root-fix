@@ -9,10 +9,32 @@ object RootExecutor {
 
     suspend fun isRootAvailable(): Boolean = withContext(Dispatchers.IO) {
         try {
-            Shell.getShell().isRoot
-        } catch (e: Exception) {
-            false
-        }
+            val shell = Shell.getShell()
+            if (shell.isRoot) return@withContext true
+        } catch (ignored: Exception) {}
+
+        // Fallback: check if su execution succeeds directly
+        try {
+            val p = Runtime.getRuntime().exec(arrayOf("su", "-c", "id"))
+            val exit = p.waitFor()
+            if (exit == 0) {
+                try {
+                    Shell.getCachedShell()?.close()
+                    return@withContext Shell.getShell().isRoot
+                } catch (ignored: Exception) {
+                    return@withContext true
+                }
+            }
+        } catch (ignored: Exception) {}
+
+        false
+    }
+
+    suspend fun requestRoot(): Boolean = withContext(Dispatchers.IO) {
+        try {
+            Shell.getCachedShell()?.close()
+        } catch (ignored: Exception) {}
+        isRootAvailable()
     }
 
     suspend fun execute(cmd: String): Pair<Boolean, List<String>> = withContext(Dispatchers.IO) {

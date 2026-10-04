@@ -9,18 +9,25 @@ import java.io.File
 class MagiskRepository {
 
     suspend fun getRootStatus(): RootStatus = withContext(Dispatchers.IO) {
+        val model = android.os.Build.MODEL.ifBlank { "Android Device" }
+        val release = android.os.Build.VERSION.RELEASE
+        val sdk = android.os.Build.VERSION.SDK_INT
+
         val isRooted = RootExecutor.isRootAvailable()
         if (!isRooted) {
-            return@withContext RootStatus(isRootGranted = false)
+            return@withContext RootStatus(
+                isRootGranted = false,
+                magiskVersion = "Not Granted",
+                seLinuxMode = "Unknown",
+                deviceModel = model,
+                androidVersion = release,
+                apiLevel = sdk
+            )
         }
 
         val (_, magiskVerOut) = RootExecutor.execute("magisk -v 2>/dev/null || echo ''")
         val (_, magiskVerCodeOut) = RootExecutor.execute("magisk -V 2>/dev/null || echo '0'")
         val (_, seLinuxOut) = RootExecutor.execute("getenforce 2>/dev/null || echo 'Enforcing'")
-
-        val model = android.os.Build.MODEL.ifBlank { "Android Device" }
-        val release = android.os.Build.VERSION.RELEASE
-        val sdk = android.os.Build.VERSION.SDK_INT
 
         RootStatus(
             isRootGranted = true,
@@ -31,6 +38,10 @@ class MagiskRepository {
             androidVersion = release,
             apiLevel = sdk
         )
+    }
+
+    suspend fun requestRootAccess(): Boolean = withContext(Dispatchers.IO) {
+        RootExecutor.requestRoot()
     }
 
     suspend fun getInstalledModules(): List<MagiskModule> = withContext(Dispatchers.IO) {

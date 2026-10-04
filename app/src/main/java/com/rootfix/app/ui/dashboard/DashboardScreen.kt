@@ -138,30 +138,61 @@ fun DashboardScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.Security,
-                                contentDescription = null,
-                                tint = if (rootStatus.isRootGranted) PrimaryEmerald else DangerRed,
-                                modifier = Modifier.size(24.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = if (rootStatus.isRootGranted) "Root Access Granted" else "Root Not Detected",
-                                fontWeight = FontWeight.SemiBold,
-                                color = if (rootStatus.isRootGranted) PrimaryEmerald else DangerRed
-                            )
+                            if (isLoading) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    strokeWidth = 2.dp,
+                                    color = AccentCyan
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Verifying Root Access...",
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = AccentCyan
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Default.Security,
+                                    contentDescription = null,
+                                    tint = if (rootStatus.isRootGranted) PrimaryEmerald else DangerRed,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = if (rootStatus.isRootGranted) "Root Access Granted" else "Root Not Detected",
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = if (rootStatus.isRootGranted) PrimaryEmerald else DangerRed
+                                )
+                            }
                         }
 
-                        Surface(
-                            color = MaterialTheme.colorScheme.surfaceVariant,
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Text(
-                                text = "SELinux: ${rootStatus.seLinuxMode}",
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                fontSize = 12.sp,
-                                color = TextSecondary
-                            )
+                        if (!isLoading && !rootStatus.isRootGranted) {
+                            Button(
+                                onClick = {
+                                    scope.launch {
+                                        magiskRepo.requestRootAccess()
+                                        refreshAll()
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = DangerRed),
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                modifier = Modifier.height(28.dp)
+                            ) {
+                                Text("Grant Root", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                            }
+                        } else {
+                            Surface(
+                                color = MaterialTheme.colorScheme.surfaceVariant,
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text(
+                                    text = "SELinux: ${rootStatus.seLinuxMode}",
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    fontSize = 12.sp,
+                                    color = TextSecondary
+                                )
+                            }
                         }
                     }
 

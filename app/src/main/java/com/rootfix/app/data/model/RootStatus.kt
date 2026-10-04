@@ -5,7 +5,7 @@ data class RootStatus(
     val magiskVersion: String = "Unknown",
     val magiskVersionCode: Int = 0,
     val seLinuxMode: String = "Unknown",
-    val deviceModel: String = "",
-    val androidVersion: String = "",
-    val apiLevel: Int = 0
+    val deviceModel: String = android.os.Build.MODEL,
+    val androidVersion: String = android.os.Build.VERSION.RELEASE,
+    val apiLevel: Int = android.os.Build.VERSION.SDK_INT
 )
