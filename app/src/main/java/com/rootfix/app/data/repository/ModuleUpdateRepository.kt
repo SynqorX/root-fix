@@ -78,7 +78,17 @@ class ModuleUpdateRepository(
             description = "Configurable open-source fork of Play Integrity Fix with custom pif.json parsing.",
             category = "Play Integrity",
             repoOwner = "osm0sis",
-            repoName = "PlayIntegrityFork"
+            repoName = "PlayIntegrityFork",
+            updateJsonUrl = "https://raw.githubusercontent.com/osm0sis/PlayIntegrityFork/main/update.json"
+        ),
+        TrackedModule(
+            id = "zygisknext",
+            name = "Zygisk Next",
+            author = "Dr-TSNG",
+            description = "Standalone next-generation Zygisk implementation for Magisk, KernelSU, and APatch.",
+            category = "Zygisk Core",
+            repoOwner = "Dr-TSNG",
+            repoName = "ZygiskNext"
         ),
         TrackedModule(
             id = "playintegritynext",
@@ -127,6 +137,7 @@ class ModuleUpdateRepository(
                 isInstalled = installed != null,
                 installedVersion = installed?.version,
                 installedVersionCode = installed?.versionCode,
+                hasAction = installed?.hasAction ?: false,
                 // Inherit updateJson from installed module if present
                 updateJsonUrl = installed?.updateJson?.ifBlank { null } ?: item.updateJsonUrl
             )
@@ -140,6 +151,7 @@ class ModuleUpdateRepository(
                 isInstalled = installed != null,
                 installedVersion = installed?.version,
                 installedVersionCode = installed?.versionCode,
+                hasAction = installed?.hasAction ?: false,
                 isCustom = true
             )
             combinedMap[item.id.lowercase()] = module

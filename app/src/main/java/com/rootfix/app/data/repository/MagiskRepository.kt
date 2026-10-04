@@ -73,6 +73,7 @@ class MagiskRepository {
 
             val (disabledResult, _) = RootExecutor.execute("test -f \"$modPath/disable\"")
             val (removeResult, _) = RootExecutor.execute("test -f \"$modPath/remove\"")
+            val (actionResult, _) = RootExecutor.execute("test -f \"$modPath/action.sh\"")
 
             modules.add(
                 MagiskModule(
@@ -84,7 +85,8 @@ class MagiskRepository {
                     description = description,
                     updateJson = updateJson,
                     isEnabled = !disabledResult,
-                    isRemovePending = removeResult
+                    isRemovePending = removeResult,
+                    hasAction = actionResult
                 )
             )
         }
@@ -114,6 +116,16 @@ class MagiskRepository {
 
     suspend fun installModuleZip(zipFile: File): Pair<Boolean, String> = withContext(Dispatchers.IO) {
         val (success, output) = RootExecutor.execute("magisk --install-module \"${zipFile.absolutePath}\"")
+        Pair(success, output.joinToString("\n"))
+    }
+
+    suspend fun executeModuleAction(moduleId: String): Pair<Boolean, String> = withContext(Dispatchers.IO) {
+        val actionScript = "/data/adb/modules/$moduleId/action.sh"
+        val (exists, _) = RootExecutor.execute("test -f \"$actionScript\"")
+        if (!exists) {
+            return@withContext Pair(false, "No action.sh found for module: $moduleId")
+        }
+        val (success, output) = RootExecutor.execute("sh \"$actionScript\"")
         Pair(success, output.joinToString("\n"))
     }
 }

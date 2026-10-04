@@ -58,6 +58,25 @@ fun ModulesScreen(
     var installProgress by remember { mutableStateOf<InstallProgress?>(null) }
     var showInstallSheet by remember { mutableStateOf(false) }
 
+    // Module Action execution state
+    var actionModalTitle by remember { mutableStateOf("") }
+    var actionLogs by remember { mutableStateOf("") }
+    var isActionRunning by remember { mutableStateOf(false) }
+    var showActionDialog by remember { mutableStateOf(false) }
+
+    fun triggerModuleAction(moduleId: String, moduleName: String) {
+        scope.launch {
+            actionModalTitle = "$moduleName Action"
+            actionLogs = "Executing `sh /data/adb/modules/$moduleId/action.sh` under root shell...\n\n"
+            isActionRunning = true
+            showActionDialog = true
+
+            val (success, logs) = magiskRepo.executeModuleAction(moduleId)
+            isActionRunning = false
+            actionLogs = if (logs.isNotBlank()) logs else if (success) "Action script completed successfully (exit code 0)." else "Action script finished with non-zero exit code."
+        }
+    }
+
     fun refreshInstalled() {
         scope.launch {
             isLoading = true
@@ -350,25 +369,41 @@ fun ModulesScreen(
                                                 color = TextSecondary
                                             )
 
-                                            TextButton(
-                                                onClick = {
-                                                    val newState = !isRemovePending
-                                                    isRemovePending = newState
-                                                    scope.launch {
-                                                        magiskRepo.setModuleRemoval(module.id, newState)
-                                                        Toast.makeText(
-                                                            context,
-                                                            if (newState) "${module.name} marked for removal" else "Removal undone",
-                                                            Toast.LENGTH_SHORT
-                                                        ).show()
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                if (module.hasAction && !isRemovePending) {
+                                                    OutlinedButton(
+                                                        onClick = { triggerModuleAction(module.id, module.name) },
+                                                        shape = RoundedCornerShape(8.dp),
+                                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                                        modifier = Modifier.height(30.dp)
+                                                    ) {
+                                                        Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
+                                                        Spacer(modifier = Modifier.width(3.dp))
+                                                        Text("Action", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                                                     }
+                                                    Spacer(modifier = Modifier.width(8.dp))
                                                 }
-                                            ) {
-                                                Text(
-                                                    text = if (isRemovePending) "Undo Removal" else "Uninstall",
-                                                    color = if (isRemovePending) PrimaryEmerald else DangerRed,
-                                                    fontSize = 12.sp
-                                                )
+
+                                                TextButton(
+                                                    onClick = {
+                                                        val newState = !isRemovePending
+                                                        isRemovePending = newState
+                                                        scope.launch {
+                                                            magiskRepo.setModuleRemoval(module.id, newState)
+                                                            Toast.makeText(
+                                                                context,
+                                                                if (newState) "${module.name} marked for removal" else "Removal undone",
+                                                                Toast.LENGTH_SHORT
+                                                            ).show()
+                                                        }
+                                                    }
+                                                ) {
+                                                    Text(
+                                                        text = if (isRemovePending) "Undo Removal" else "Uninstall",
+                                                        color = if (isRemovePending) PrimaryEmerald else DangerRed,
+                                                        fontSize = 12.sp
+                                                    )
+                                                }
                                             }
                                         }
                                     }
@@ -583,19 +618,35 @@ fun ModulesScreen(
                                             )
                                         }
 
-                                        Button(
-                                            onClick = { startInstallOrUpdate(module) },
-                                            colors = ButtonDefaults.buttonColors(
-                                                containerColor = if (module.hasUpdate) WarningAmber else MaterialTheme.colorScheme.primary
-                                            ),
-                                            shape = RoundedCornerShape(8.dp),
-                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                                        ) {
-                                            Text(
-                                                text = if (module.hasUpdate) "Update" else if (module.isInstalled) "Reinstall" else "Install",
-                                                fontSize = 12.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            if (module.isInstalled && module.hasAction) {
+                                                OutlinedButton(
+                                                    onClick = { triggerModuleAction(module.id, module.name) },
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                                    modifier = Modifier.height(32.dp)
+                                                ) {
+                                                    Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
+                                                    Spacer(modifier = Modifier.width(3.dp))
+                                                    Text("Action", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                                                }
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                            }
+
+                                            Button(
+                                                onClick = { startInstallOrUpdate(module) },
+                                                colors = ButtonDefaults.buttonColors(
+                                                    containerColor = if (module.hasUpdate) WarningAmber else MaterialTheme.colorScheme.primary
+                                                ),
+                                                shape = RoundedCornerShape(8.dp),
+                                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                            ) {
+                                                Text(
+                                                    text = if (module.hasUpdate) "Update" else if (module.isInstalled) "Reinstall" else "Install",
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
                                         }
                                     }
 
@@ -826,6 +877,58 @@ fun ModulesScreen(
                         ) {
                             Text("Done")
                         }
+                    }
+                }
+            )
+        }
+
+        // Module Action Terminal Dialog
+        if (showActionDialog) {
+            AlertDialog(
+                onDismissRequest = {
+                    if (!isActionRunning) showActionDialog = false
+                },
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.PlayArrow, contentDescription = null, tint = AccentCyan, modifier = Modifier.size(22.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(actionModalTitle, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    }
+                },
+                text = {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        if (isActionRunning) {
+                            LinearProgressIndicator(
+                                modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
+                                color = PrimaryEmerald
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+                        }
+                        Surface(
+                            color = DarkBackground,
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 280.dp)
+                        ) {
+                            Box(modifier = Modifier.padding(10.dp)) {
+                                Text(
+                                    text = actionLogs,
+                                    fontSize = 11.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    color = AccentCyan,
+                                    lineHeight = 15.sp
+                                )
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = { showActionDialog = false },
+                        enabled = !isActionRunning
+                    ) {
+                        Text(if (isActionRunning) "Running..." else "Done")
                     }
                 }
             )

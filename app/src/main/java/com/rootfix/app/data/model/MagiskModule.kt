@@ -9,5 +9,6 @@ data class MagiskModule(
     val description: String,
     val updateJson: String? = null,
     val isEnabled: Boolean = true,
-    val isRemovePending: Boolean = false
+    val isRemovePending: Boolean = false,
+    val hasAction: Boolean = false
 )
