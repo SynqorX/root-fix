@@ -197,5 +197,18 @@ class MagiskRepository {
         val (success, output) = RootExecutor.execute("cd \"$dir\" && sh \"$actionScript\"")
         Pair(success, output.joinToString("\n"))
     }
+
+    suspend fun rebootDevice(mode: RebootMode = RebootMode.STANDARD): Boolean = withContext(Dispatchers.IO) {
+        val (success, _) = RootExecutor.execute(mode.command)
+        success
+    }
 }
+
+enum class RebootMode(val label: String, val description: String, val command: String) {
+    STANDARD("System Reboot", "Full device restart", "/system/bin/svc power reboot || reboot || /system/bin/reboot"),
+    SOFT("Soft Reboot (Userspace)", "Quickly restarts Zygote and Android UI without hardware reboot", "setprop ctl.restart zygote"),
+    RECOVERY("Recovery Mode", "Reboots into recovery (TWRP/OrangeFox)", "/system/bin/reboot recovery || reboot recovery"),
+    BOOTLOADER("Bootloader / Download", "Reboots into bootloader or download mode", "/system/bin/reboot bootloader || reboot bootloader")
+}
+
 

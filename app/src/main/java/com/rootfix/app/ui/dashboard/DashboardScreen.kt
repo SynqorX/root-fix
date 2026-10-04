@@ -20,6 +20,7 @@ import androidx.compose.ui.unit.sp
 import com.rootfix.app.data.model.PifProfile
 import com.rootfix.app.data.model.RootStatus
 import com.rootfix.app.data.repository.MagiskRepository
+import com.rootfix.app.data.repository.RebootMode
 import com.rootfix.app.data.repository.PifRepository
 import com.rootfix.app.data.repository.GoogleServicesRepository
 import com.rootfix.app.data.repository.GooglePackageInfo
@@ -27,6 +28,7 @@ import com.rootfix.app.service.PifSyncWorker
 import com.rootfix.app.ui.theme.*
 import com.rootfix.app.ui.extra.RootFixGlassCard
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import com.rootfix.app.data.repository.ModuleUpdateRepository
 import kotlinx.coroutines.launch
 
@@ -50,6 +52,11 @@ fun DashboardScreen(
     var isAutoSyncEnabled by remember { mutableStateOf(true) }
     var isLoading by remember { mutableStateOf(true) }
     var isRestartingGms by remember { mutableStateOf(false) }
+
+    // Reboot state
+    var showRebootDialog by remember { mutableStateOf(false) }
+    var selectedRebootMode by remember { mutableStateOf(RebootMode.STANDARD) }
+    var isRebooting by remember { mutableStateOf(false) }
 
     val defaultGooglePackages = remember {
         listOf(
@@ -104,7 +111,7 @@ fun DashboardScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "RootFix Autopilot",
                         style = MaterialTheme.typography.headlineMedium,
@@ -117,12 +124,40 @@ fun DashboardScreen(
                         color = TextSecondary
                     )
                 }
-                IconButton(onClick = { refreshAll() }) {
-                    Icon(
-                        imageVector = Icons.Default.Refresh,
-                        contentDescription = "Refresh",
-                        tint = MaterialTheme.colorScheme.primary
-                    )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = { showRebootDialog = true },
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        border = BorderStroke(1.dp, WarningAmber.copy(alpha = 0.5f)),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = WarningAmber),
+                        modifier = Modifier.height(34.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.RestartAlt,
+                            contentDescription = "Reboot",
+                            tint = WarningAmber,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Reboot",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = WarningAmber
+                        )
+                    }
+
+                    IconButton(onClick = { refreshAll() }) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "Refresh",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
                 }
             }
 
@@ -677,6 +712,120 @@ fun DashboardScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showConfirmWipeDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    // Reboot Confirmation & Mode Selector Dialog
+    if (showRebootDialog) {
+        AlertDialog(
+            onDismissRequest = { if (!isRebooting) showRebootDialog = false },
+            icon = {
+                Icon(
+                    imageVector = Icons.Default.RestartAlt,
+                    contentDescription = null,
+                    tint = WarningAmber,
+                    modifier = Modifier.size(32.dp)
+                )
+            },
+            title = {
+                Text(
+                    text = "Reboot Device",
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        text = "Select reboot mode to apply module changes or restart system components:",
+                        fontSize = 12.sp,
+                        color = TextSecondary
+                    )
+
+                    RebootMode.entries.forEach { mode ->
+                        val isSelected = selectedRebootMode == mode
+                        Surface(
+                            color = if (isSelected) AccentCyan.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant,
+                            shape = RoundedCornerShape(10.dp),
+                            border = if (isSelected) BorderStroke(1.dp, AccentCyan) else null,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable(enabled = !isRebooting) { selectedRebootMode = mode }
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                RadioButton(
+                                    selected = isSelected,
+                                    onClick = { selectedRebootMode = mode },
+                                    enabled = !isRebooting,
+                                    colors = RadioButtonDefaults.colors(selectedColor = AccentCyan)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column {
+                                    Text(
+                                        text = mode.label,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isSelected) AccentCyan else MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        text = mode.description,
+                                        fontSize = 11.sp,
+                                        color = TextSecondary
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    if (isRebooting) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), color = WarningAmber, strokeWidth = 2.dp)
+                            Text("Issuing ${selectedRebootMode.label} command...", fontSize = 12.sp, color = WarningAmber)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        scope.launch {
+                            isRebooting = true
+                            val success = magiskRepo.rebootDevice(selectedRebootMode)
+                            if (!success) {
+                                isRebooting = false
+                                Toast.makeText(context, "Reboot command failed. Verify root access.", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    },
+                    enabled = !isRebooting,
+                    colors = ButtonDefaults.buttonColors(containerColor = WarningAmber)
+                ) {
+                    Text(
+                        text = if (isRebooting) "Rebooting..." else "Reboot Now",
+                        color = DarkBackground,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showRebootDialog = false },
+                    enabled = !isRebooting
+                ) {
                     Text("Cancel")
                 }
             }
