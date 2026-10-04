@@ -64,6 +64,14 @@ fun ModulesScreen(
     var isActionRunning by remember { mutableStateOf(false) }
     var showActionDialog by remember { mutableStateOf(false) }
 
+    // Magisk Zygisk state
+    var isMagiskZygiskEnabled by remember { mutableStateOf(false) }
+    var isTogglingZygisk by remember { mutableStateOf(false) }
+
+    // Instant module removal confirmation dialog state
+    var modulePendingRemoval by remember { mutableStateOf<MagiskModule?>(null) }
+    var isRemovingModule by remember { mutableStateOf(false) }
+
     fun triggerModuleAction(moduleId: String, moduleName: String) {
         scope.launch {
             actionModalTitle = "$moduleName Action"
@@ -82,6 +90,7 @@ fun ModulesScreen(
             isLoading = true
             installedModules = magiskRepo.getInstalledModules()
             trackedModules = repo.getTrackedModules()
+            isMagiskZygiskEnabled = magiskRepo.isMagiskZygiskEnabled()
             isLoading = false
         }
     }
@@ -226,6 +235,85 @@ fun ModulesScreen(
                             .padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
+                        // Magisk Built-in Zygisk Toggle Card
+                        item {
+                            RootFixGlassCard(
+                                shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(38.dp)
+                                                .clip(RoundedCornerShape(10.dp))
+                                                .background(if (isMagiskZygiskEnabled) PrimaryEmerald.copy(alpha = 0.2f) else MaterialTheme.colorScheme.surfaceVariant),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Extension,
+                                                contentDescription = null,
+                                                tint = if (isMagiskZygiskEnabled) PrimaryEmerald else TextSecondary,
+                                                modifier = Modifier.size(22.dp)
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.width(12.dp))
+                                        Column {
+                                            Text(
+                                                text = "Magisk Built-in Zygisk",
+                                                style = MaterialTheme.typography.titleSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                            Text(
+                                                text = if (isMagiskZygiskEnabled) "Status: Enabled (Turn OFF to use Zygisk Next)" else "Status: Disabled (Required for Zygisk Next)",
+                                                fontSize = 11.sp,
+                                                color = if (isMagiskZygiskEnabled) AccentCyan else TextSecondary
+                                            )
+                                        }
+                                    }
+
+                                    if (isTogglingZygisk) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(24.dp),
+                                            strokeWidth = 2.dp,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    } else {
+                                        Switch(
+                                            checked = isMagiskZygiskEnabled,
+                                            onCheckedChange = { newState ->
+                                                scope.launch {
+                                                    isTogglingZygisk = true
+                                                    val success = magiskRepo.setMagiskZygiskEnabled(newState)
+                                                    if (success) {
+                                                        isMagiskZygiskEnabled = newState
+                                                        Toast.makeText(
+                                                            context,
+                                                            "Magisk Zygisk set to ${if (newState) "ON" else "OFF"}. Reboot device to apply.",
+                                                            Toast.LENGTH_LONG
+                                                        ).show()
+                                                    } else {
+                                                        Toast.makeText(context, "Failed to toggle Magisk Zygisk", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                    isTogglingZygisk = false
+                                                }
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
                         item {
                             Surface(
                                 color = MaterialTheme.colorScheme.surfaceVariant,
@@ -239,7 +327,7 @@ fun ModulesScreen(
                                     Icon(Icons.Default.Info, contentDescription = null, tint = AccentCyan, modifier = Modifier.size(20.dp))
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Text(
-                                        text = "Module toggle and removal changes take effect upon the next reboot.",
+                                        text = "Toggle changes take effect on reboot. Removing a module deletes it immediately.",
                                         fontSize = 12.sp,
                                         color = TextSecondary
                                     )
@@ -384,24 +472,38 @@ fun ModulesScreen(
                                                     Spacer(modifier = Modifier.width(8.dp))
                                                 }
 
+                                                if (module.isRemovePending) {
+                                                    TextButton(
+                                                        onClick = {
+                                                            scope.launch {
+                                                                magiskRepo.setModuleRemoval(module.id, false)
+                                                                Toast.makeText(context, "Removal undone", Toast.LENGTH_SHORT).show()
+                                                                refreshInstalled()
+                                                            }
+                                                        }
+                                                    ) {
+                                                        Text("Undo", color = PrimaryEmerald, fontSize = 12.sp)
+                                                    }
+                                                    Spacer(modifier = Modifier.width(4.dp))
+                                                }
+
                                                 TextButton(
                                                     onClick = {
-                                                        val newState = !isRemovePending
-                                                        isRemovePending = newState
-                                                        scope.launch {
-                                                            magiskRepo.setModuleRemoval(module.id, newState)
-                                                            Toast.makeText(
-                                                                context,
-                                                                if (newState) "${module.name} marked for removal" else "Removal undone",
-                                                                Toast.LENGTH_SHORT
-                                                            ).show()
-                                                        }
+                                                        modulePendingRemoval = module
                                                     }
                                                 ) {
+                                                    Icon(
+                                                        Icons.Default.DeleteForever,
+                                                        contentDescription = null,
+                                                        modifier = Modifier.size(15.dp),
+                                                        tint = DangerRed
+                                                    )
+                                                    Spacer(modifier = Modifier.width(3.dp))
                                                     Text(
-                                                        text = if (isRemovePending) "Undo Removal" else "Uninstall",
-                                                        color = if (isRemovePending) PrimaryEmerald else DangerRed,
-                                                        fontSize = 12.sp
+                                                        text = if (module.isRemovePending) "Remove Now" else "Uninstall",
+                                                        color = DangerRed,
+                                                        fontSize = 12.sp,
+                                                        fontWeight = FontWeight.SemiBold
                                                     )
                                                 }
                                             }
@@ -929,6 +1031,81 @@ fun ModulesScreen(
                         enabled = !isActionRunning
                     ) {
                         Text(if (isActionRunning) "Running..." else "Done")
+                    }
+                }
+            )
+        }
+
+        // Instant Module Removal Confirmation Dialog
+        if (modulePendingRemoval != null) {
+            val mod = modulePendingRemoval!!
+            AlertDialog(
+                onDismissRequest = {
+                    if (!isRemovingModule) modulePendingRemoval = null
+                },
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.DeleteForever, contentDescription = null, tint = DangerRed, modifier = Modifier.size(24.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Remove Module?", fontWeight = FontWeight.Bold)
+                    }
+                },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            text = "Are you sure you want to permanently remove \"${mod.name}\"?",
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = "This will immediately delete the module files from /data/adb/modules without waiting for a reboot.",
+                            fontSize = 12.sp,
+                            color = TextSecondary
+                        )
+                        if (isRemovingModule) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    strokeWidth = 2.dp,
+                                    color = DangerRed
+                                )
+                                Text("Removing module files...", fontSize = 12.sp, color = DangerRed)
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            scope.launch {
+                                isRemovingModule = true
+                                val success = magiskRepo.removeModuleImmediately(mod.id)
+                                isRemovingModule = false
+                                modulePendingRemoval = null
+                                if (success) {
+                                    Toast.makeText(context, "${mod.name} removed successfully.", Toast.LENGTH_SHORT).show()
+                                    refreshInstalled()
+                                } else {
+                                    Toast.makeText(context, "Failed to remove ${mod.name}", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        },
+                        enabled = !isRemovingModule,
+                        colors = ButtonDefaults.buttonColors(containerColor = DangerRed)
+                    ) {
+                        Text("Remove Now", color = TextPrimary, fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = { modulePendingRemoval = null },
+                        enabled = !isRemovingModule
+                    ) {
+                        Text("Cancel")
                     }
                 }
             )

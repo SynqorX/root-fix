@@ -119,6 +119,24 @@ class MagiskRepository {
         Pair(success, output.joinToString("\n"))
     }
 
+    suspend fun isMagiskZygiskEnabled(): Boolean = withContext(Dispatchers.IO) {
+        val (success, output) = RootExecutor.execute("magisk --sqlite \"SELECT value FROM settings WHERE key='zygisk';\" 2>/dev/null")
+        if (!success) return@withContext false
+        output.any { it.contains("value=1") }
+    }
+
+    suspend fun setMagiskZygiskEnabled(enabled: Boolean): Boolean = withContext(Dispatchers.IO) {
+        val v = if (enabled) 1 else 0
+        val (success, _) = RootExecutor.execute("magisk --sqlite \"REPLACE INTO settings (key, value) VALUES ('zygisk', $v);\"")
+        success
+    }
+
+    suspend fun removeModuleImmediately(moduleId: String): Boolean = withContext(Dispatchers.IO) {
+        val cmd = "test -f \"/data/adb/modules/$moduleId/uninstall.sh\" && sh \"/data/adb/modules/$moduleId/uninstall.sh\" 2>/dev/null || true; rm -rf \"/data/adb/modules/$moduleId\" \"/data/adb/modules_update/$moduleId\""
+        val (success, _) = RootExecutor.execute(cmd)
+        success
+    }
+
     suspend fun executeModuleAction(moduleId: String): Pair<Boolean, String> = withContext(Dispatchers.IO) {
         val actionScript = "/data/adb/modules/$moduleId/action.sh"
         val (exists, _) = RootExecutor.execute("test -f \"$actionScript\"")
@@ -129,3 +147,4 @@ class MagiskRepository {
         Pair(success, output.joinToString("\n"))
     }
 }
+

@@ -82,13 +82,14 @@ class ModuleUpdateRepository(
             updateJsonUrl = "https://raw.githubusercontent.com/osm0sis/PlayIntegrityFork/main/update.json"
         ),
         TrackedModule(
-            id = "zygisknext",
+            id = "zygisksu",
             name = "Zygisk Next",
-            author = "Dr-TSNG",
+            author = "LSPosed",
             description = "Standalone next-generation Zygisk implementation for Magisk, KernelSU, and APatch.",
             category = "Zygisk Core",
-            repoOwner = "Dr-TSNG",
-            repoName = "ZygiskNext"
+            repoOwner = "LSPosed",
+            repoName = "ZygiskNext",
+            updateJsonUrl = "https://lsposed.zip/zygisk-next/update.json"
         ),
         TrackedModule(
             id = "playintegritynext",
@@ -98,15 +99,6 @@ class ModuleUpdateRepository(
             category = "Play Integrity",
             repoOwner = "daboynb",
             repoName = "PlayIntegrityNEXT"
-        ),
-        TrackedModule(
-            id = "zygisksu",
-            name = "Zygisk Assistant",
-            author = "Snake49",
-            description = "Hides root, Zygisk presence, and modified bootloader flags from sensitive banking apps.",
-            category = "Root Hiding",
-            repoOwner = "Snake49",
-            repoName = "Zygisk-Assistant"
         )
     )
 
@@ -130,6 +122,7 @@ class ModuleUpdateRepository(
                 "playintegrityfix" -> installedMap["playintegrityfix"]?.takeUnless {
                     it.name.contains("Integrity Box", ignoreCase = true) || it.author.contains("Meow", ignoreCase = true)
                 }
+                "zygisksu", "zygisknext" -> installedMap["zygisksu"] ?: installedMap["zygisknext"]
                 else -> installedMap[item.id.lowercase()]
             }
 

@@ -63,6 +63,8 @@ fun DashboardScreen(
     var isClearingCache by remember { mutableStateOf(false) }
     var isClearingData by remember { mutableStateOf(false) }
     var showConfirmWipeDialog by remember { mutableStateOf(false) }
+    var isMagiskZygiskEnabled by remember { mutableStateOf(false) }
+    var isTogglingZygisk by remember { mutableStateOf(false) }
 
     fun refreshAll() {
         scope.launch {
@@ -72,6 +74,7 @@ fun DashboardScreen(
             val modules = magiskRepo.getInstalledModules()
             moduleCount = modules.size
             googlePackages = googleRepo.getInstalledGooglePackages()
+            isMagiskZygiskEnabled = magiskRepo.isMagiskZygiskEnabled()
             try {
                 val tracked = modUpdateRepo.getTrackedModules()
                 availableUpdatesCount = tracked.count { it.hasUpdate }
@@ -178,6 +181,64 @@ fun DashboardScreen(
                         Column {
                             Text(text = "Magisk Version", fontSize = 12.sp, color = TextSecondary)
                             Text(text = rootStatus.magiskVersion, fontWeight = FontWeight.Medium, color = AccentCyan)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                            Icon(
+                                Icons.Default.Extension,
+                                contentDescription = null,
+                                tint = if (isMagiskZygiskEnabled) PrimaryEmerald else TextSecondary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column {
+                                Text(
+                                    text = "Magisk Built-in Zygisk",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = if (isMagiskZygiskEnabled) "Enabled (Disable if using Zygisk Next)" else "Disabled (Required for Zygisk Next)",
+                                    fontSize = 11.sp,
+                                    color = if (isMagiskZygiskEnabled) PrimaryEmerald else TextSecondary
+                                )
+                            }
+                        }
+
+                        if (isTogglingZygisk) {
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                        } else {
+                            Switch(
+                                checked = isMagiskZygiskEnabled,
+                                onCheckedChange = { newState ->
+                                    scope.launch {
+                                        isTogglingZygisk = true
+                                        val ok = magiskRepo.setMagiskZygiskEnabled(newState)
+                                        if (ok) {
+                                            isMagiskZygiskEnabled = newState
+                                            Toast.makeText(
+                                                context,
+                                                "Magisk Zygisk set to ${if (newState) "ON" else "OFF"}. Reboot required.",
+                                                Toast.LENGTH_LONG
+                                            ).show()
+                                        } else {
+                                            Toast.makeText(context, "Failed to toggle Magisk Zygisk", Toast.LENGTH_SHORT).show()
+                                        }
+                                        isTogglingZygisk = false
+                                    }
+                                }
+                            )
                         }
                     }
                 }
