@@ -110,6 +110,16 @@ class ModuleUpdateRepository(
             repoOwner = "Yurii0307",
             repoName = "yurikey",
             updateJsonUrl = "https://raw.githubusercontent.com/Yurii0307/yurikey/main/update.json"
+        ),
+        TrackedModule(
+            id = "specter",
+            name = "Specter",
+            author = "dpejoh",
+            description = "Unified Play Integrity and root hiding stack for Android with automated keybox, inotify app targeting, and WebUI.",
+            category = "Keybox & Integrity",
+            repoOwner = "dpejoh",
+            repoName = "specter",
+            updateJsonUrl = "https://raw.githubusercontent.com/dpejoh/specter/main/update.json"
         )
     )
 
@@ -152,6 +162,7 @@ class ModuleUpdateRepository(
                 "zygisksu", "zygisknext" -> installedMap["zygisksu"] ?: installedMap["zygisknext"]
                 "tricky_store" -> installedMap["tricky_store"] ?: installedMap["ta_utl"]
                 "yurikey" -> installedMap["yurikey"] ?: installedMap["yuri_key"]
+                "specter" -> installedMap["specter"] ?: installedMap["Specter"]
                 else -> installedMap[key]
             }
 
