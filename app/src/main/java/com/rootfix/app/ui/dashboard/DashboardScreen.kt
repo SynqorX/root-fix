@@ -27,22 +27,26 @@ import com.rootfix.app.service.PifSyncWorker
 import com.rootfix.app.ui.theme.*
 import com.rootfix.app.ui.extra.RootFixGlassCard
 import androidx.compose.foundation.BorderStroke
+import com.rootfix.app.data.repository.ModuleUpdateRepository
 import kotlinx.coroutines.launch
 
 @Composable
 fun DashboardScreen(
     magiskRepo: MagiskRepository,
     pifRepo: PifRepository,
+    updateRepo: ModuleUpdateRepository? = null,
     googleRepo: GoogleServicesRepository = remember { GoogleServicesRepository() },
     onNavigateToPif: () -> Unit,
     onNavigateToModules: () -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val modUpdateRepo = remember { updateRepo ?: ModuleUpdateRepository(context, magiskRepo) }
 
     var rootStatus by remember { mutableStateOf(RootStatus()) }
     var activePif by remember { mutableStateOf<PifProfile?>(null) }
     var moduleCount by remember { mutableIntStateOf(0) }
+    var availableUpdatesCount by remember { mutableIntStateOf(0) }
     var isAutoSyncEnabled by remember { mutableStateOf(true) }
     var isLoading by remember { mutableStateOf(true) }
     var isRestartingGms by remember { mutableStateOf(false) }
@@ -68,6 +72,10 @@ fun DashboardScreen(
             val modules = magiskRepo.getInstalledModules()
             moduleCount = modules.size
             googlePackages = googleRepo.getInstalledGooglePackages()
+            try {
+                val tracked = modUpdateRepo.getTrackedModules()
+                availableUpdatesCount = tracked.count { it.hasUpdate }
+            } catch (ignored: Exception) {}
             isLoading = false
         }
     }
@@ -493,8 +501,29 @@ fun DashboardScreen(
                         )
                         Spacer(modifier = Modifier.width(12.dp))
                         Column {
-                            Text(text = "Installed Modules", fontWeight = FontWeight.SemiBold)
-                            Text(text = "$moduleCount modules active in /data/adb/modules", fontSize = 12.sp, color = TextSecondary)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(text = "Installed Modules", fontWeight = FontWeight.SemiBold)
+                                if (availableUpdatesCount > 0) {
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Surface(
+                                        color = WarningAmber.copy(alpha = 0.2f),
+                                        shape = RoundedCornerShape(6.dp)
+                                    ) {
+                                        Text(
+                                            text = "$availableUpdatesCount UPDATE${if (availableUpdatesCount > 1) "S" else ""}",
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = WarningAmber,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
+                            }
+                            Text(
+                                text = if (availableUpdatesCount > 0) "$moduleCount installed • Update available!" else "$moduleCount modules active in /data/adb/modules",
+                                fontSize = 12.sp,
+                                color = if (availableUpdatesCount > 0) WarningAmber else TextSecondary
+                            )
                         }
                     }
 

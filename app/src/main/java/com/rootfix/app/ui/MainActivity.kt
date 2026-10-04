@@ -3,21 +3,23 @@ package com.rootfix.app.ui
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material3.*
-import androidx.compose.foundation.border
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
+import com.rootfix.app.data.repository.KeyboxRepository
 import com.rootfix.app.data.repository.MagiskRepository
+import com.rootfix.app.data.repository.ModuleUpdateRepository
 import com.rootfix.app.data.repository.PifRepository
 import com.rootfix.app.service.PifSyncWorker
 import com.rootfix.app.ui.dashboard.DashboardScreen
@@ -35,6 +37,8 @@ class MainActivity : ComponentActivity() {
 
     private val magiskRepo = MagiskRepository()
     private val pifRepo = PifRepository()
+    private val keyboxRepo = KeyboxRepository()
+    private val updateRepo by lazy { ModuleUpdateRepository(applicationContext, magiskRepo) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -82,14 +86,17 @@ class MainActivity : ComponentActivity() {
                             Screen.DASHBOARD -> DashboardScreen(
                                 magiskRepo = magiskRepo,
                                 pifRepo = pifRepo,
+                                updateRepo = updateRepo,
                                 onNavigateToPif = { currentScreen = Screen.PIF },
                                 onNavigateToModules = { currentScreen = Screen.MODULES }
                             )
                             Screen.PIF -> PifScreen(
-                                pifRepo = pifRepo
+                                pifRepo = pifRepo,
+                                keyboxRepo = keyboxRepo
                             )
                             Screen.MODULES -> ModulesScreen(
-                                magiskRepo = magiskRepo
+                                magiskRepo = magiskRepo,
+                                updateRepo = updateRepo
                             )
                         }
                     }

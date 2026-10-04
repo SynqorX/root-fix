@@ -170,6 +170,50 @@ Detailed findings from live device testing with `gr.nikolasspyr.integritycheck`:
   4. **Attestation & Hardware Enforcement**:
      - Google Play Integrity servers enforce hardware Keymaster/KeyMint attestation for `MEETS_DEVICE_INTEGRITY`. Public beta/canary fingerprints are blocked server-side. Reliable `MEETS_DEVICE_INTEGRITY` on modern attestation requires either an unrevoked certified OEM build or a keybox injection module like **TrickyStore**.
 
+### 5.7 Autonomous Module Updater & Repository Engine (Obtainium Architecture)
+Managed by `ModuleUpdateRepository`:
+- **Inspiration & Parity with Obtainium**: Just as Obtainium tracks and installs app APKs directly from developer sources without intermediate app stores, RootFix tracks Magisk modules directly from upstream GitHub Releases and `update.json` endpoints.
+- **Data Model**:
+  - `TrackedModule`: Stores module ID, name, author, category, GitHub repository coordinates (`repoOwner`/`repoName`), `updateJsonUrl`, installed vs remote version/versionCode, and release notes.
+  - `ModuleReleaseInfo`: Parses GitHub release assets, matching `.zip` payloads, changelogs, publication timestamps, and asset byte sizes.
+- **Autonomous Update Detection**:
+  - Automatically correlates locally installed modules (`/data/adb/modules/*`) with known upstream repositories or embedded `updateJson` URLs.
+  - Compares versions intelligently using version code ordering and semantic version string decomposition (`major.minor.patch`), stripping prefixes (`v`, `V`) and metadata tags.
+  - Renders visual update badges ("UPDATE AVAILABLE: vX.X.X") both in the dashboard summary and directly on the module cards.
+- **Custom Repository Tracking**:
+  - Users can track any custom GitHub repository (`owner/repo` or full URL) or custom `update.json` URL via a dedicated "Track Module" dialog.
+  - Verifies remote release availability before saving to persistent application storage (`rootfix_module_updater` SharedPreferences).
+- **Curated Modules Catalog**:
+  - Built-in tracking for critical ecosystem modules:
+    - `Play Integrity Fix [INJECT]` (`KOWX712/PlayIntegrityFix`)
+    - `TrickyStore (Keybox Attestation)` (`5ec1cff/TrickyStore`)
+    - `Zygisk Detach` (`j-hc/zygisk-detach`)
+    - `Play Integrity Fork` (`osm0sis/PlayIntegrityFork`)
+    - `PlayIntegrityNEXT` (`daboynb/PlayIntegrityNEXT`)
+    - `Zygisk Assistant` (`Snake49/Zygisk-Assistant`)
+- **Streaming Download & Root Installation Engine**:
+  - Downloads module `.zip` assets directly to `context.cacheDir` using buffered OkHttp streaming with real-time download percentage and byte counters.
+  - Flashes modules directly through root shell using `magisk --install-module "<path_to_zip>"`.
+  - Captures and displays real-time terminal installation output in a modal log viewer, matching the Magisk Manager installation experience.
+  - Automatically cleans up temporary cache ZIP files upon completion and re-queries installed module states.
+
+### 5.8 Project InfinityX Keybox Keystore Attestation Hub
+Managed by `KeyboxRepository`:
+- **The InfinityX Spoofing Fundamental**:
+  - Project InfinityX custom ROMs successfully recover all three integrity verdicts (`MEETS_BASIC_INTEGRITY`, `MEETS_DEVICE_INTEGRITY`, `MEETS_STRONG_INTEGRITY`) through a dual-pillar strategy:
+    1. **Pillar 1: Framework Build Decomposition (Basic Integrity)**: The 13-tuple matching property set (`MANUFACTURER`, `MODEL`, `FINGERPRINT`, `BRAND`, `PRODUCT`, `DEVICE`, `RELEASE`, `ID`, `INCREMENTAL`, `TYPE`, `TAGS`, `SECURITY_PATCH`, `DEVICE_INITIAL_SDK_INT`) plus system properties `*.build.id`, `*.security_patch`, and `*api_level`.
+    2. **Pillar 2: Hardware Keybox Injection (Device & Strong Integrity)**: Injecting a certified `keybox.xml` containing valid ECDSA/RSA private keys and X.509 certificate chains into the Android KeyStore attestation pipeline.
+- **Stock Android / Magisk Realization (TrickyStore Integration)**:
+  - On rooted stock Android where the system framework cannot be recompiled, RootFix manages this mechanism via the **TrickyStore** engine:
+    - Keybox path: `/data/adb/tricky_store/keybox.xml`
+    - Target applications: `/data/adb/tricky_store/target.txt`
+    - Security patch level override: `/data/adb/tricky_store/security_patch.txt`
+- **Keybox Management Capabilities in RootFix**:
+  - **Status Inspection**: Detects whether TrickyStore is installed, inspects `/data/adb/tricky_store/keybox.xml`, parses XML structure, extracts DeviceID, determines key algorithm (ECDSA vs RSA), and counts certificate chain depth.
+  - **Interactive XML Deployment**: Features an in-app Keybox XML modal that validates schema presence (`<Keybox>`, `<PrivateKey>`, `<Certificate>`), writes atomically to `/data/adb/tricky_store/keybox.xml` with `chmod 644` and `restorecon`, and immediately hot-reloads Google Play Services.
+  - **Target Apps Configuration**: Manages target packages in `/data/adb/tricky_store/target.txt` (defaulting to `com.google.android.gms`, `com.android.vending`, and `gr.nikolasspyr.integritycheck`).
+  - **1-Tap Engine Provisioning**: Integrates with the Obtainium module updater to allow installing and updating the TrickyStore engine directly from the app.
+
 ---
 
 ## 6. Project Implementation Structure
@@ -191,18 +235,25 @@ root-fix/
 │           │   │   ├── model/
 │           │   │   │   ├── RootStatus.kt       # Device root and Magisk version info
 │           │   │   │   ├── MagiskModule.kt     # Magisk module metadata & toggle states
-│           │   │   │   └── PifProfile.kt       # PIF / Fingerprint configuration model
+│           │   │   │   ├── PifProfile.kt       # PIF / Fingerprint configuration model
+│           │   │   │   ├── ModuleUpdateModels.kt # Obtainium-style module update models
+│           │   │   │   └── KeyboxModels.kt     # Project InfinityX Keybox attestation models
 │           │   │   └── repository/
 │           │   │       ├── RootExecutor.kt     # Core libsu runner & atomic file I/O
 │           │   │       ├── MagiskRepository.kt # Module inspection & management
-│           │   │       └── PifRepository.kt    # PIF reader, writer, remote fetcher, GMS reloader
+│           │   │       ├── PifRepository.kt    # PIF reader, writer, remote fetcher, GMS reloader
+│           │   │       ├── ModuleUpdateRepository.kt # Obtainium module fetcher, updater & flasher
+│           │   │       ├── KeyboxRepository.kt # InfinityX Keybox reader, deployer & targets manager
+│           │   │       └── GoogleServicesRepository.kt # Google Services cache & token wipe manager
 │           │   ├── service/
 │           │   │   └── PifSyncWorker.kt        # WorkManager autonomous background worker
 │           │   └── ui/
 │           │       ├── MainActivity.kt         # Jetpack Compose navigation host
+│           │       ├── extra/
+│           │       │   └── RootFixGlassCard.kt # Glassmorphic UI panel component
 │           │       ├── dashboard/              # Status overview & fast action controls
-│           │       ├── modules/                # Module listing & toggle controls
-│           │       └── pif/                    # PIF fingerprint viewer, preset selector, and editor
+│           │       ├── modules/                # Obtainium-style module updater & toggle screen
+│           │       └── pif/                    # PIF autopilot, certified presets & InfinityX Keybox hub
 │           └── res/
 ```
 
@@ -241,7 +292,15 @@ root-fix/
   - Automatically enforces all 7 required spoof flags (`spoofBuild=true`, `spoofProps=true`, `spoofProvider=true`, `spoofSignature=true`, `spoofVendingBuild=true`, `spoofVendingSdk=true`, `DEBUG=true`).
   - Visual status verified: All 7 spoof badges render active (emerald green) in the UI.
   - Verified on `/data/adb/pif.prop`: Atomic write confirmed with automatic backup creation (`pif.prop.bak`) and GMS/Vending reload without reboot.
-- **Magisk Modules Screen**: Accurately queries and displays all installed Magisk modules (`playintegrityfix`, `zygisk_shamiko`, `zygisk-detach`), with interactive toggle controls (`disable` marker management) and uninstall marking (`remove` marker management).
+- **Obtainium-Style Module Updater & Hub (ModulesScreen)**:
+  - **Tabbed Architecture**: Offers "Installed (3)" and "Updates & Repo" tabs.
+  - **Installed View**: Displays all active Magisk modules with real-time toggle and removal tracking, plus an inline amber "UPDATE AVAILABLE" banner for modules with newer upstream versions.
+  - **Updates & Repo View**: Displays autonomous update checking, curated repository catalog (Play Integrity Fix, TrickyStore, Zygisk Detach, Play Integrity Fork, PlayIntegrityNEXT, Zygisk Assistant), and user-tracked custom repositories.
+  - **Custom Tracking Dialog**: Allows tracking arbitrary GitHub repositories (`owner/repo`) or `update.json` URLs with verification before saving to persistent storage.
+  - **Flashing & Logs Viewer**: Downloads `.zip` release assets directly and runs `magisk --install-module` with live output logging.
+- **Project InfinityX Hardware Attestation & Keybox Hub (PifScreen)**:
+  - Displays Keybox deployment status, algorithm detection (ECDSA/RSA), certificate chain count, and TrickyStore engine presence.
+  - Provides interactive "Deploy Keybox XML" dialog with schema verification (`<Keybox>`, `<PrivateKey>`, `<Certificate>`), atomic deployment to `/data/adb/tricky_store/keybox.xml`, and target package configuration (`/data/adb/tricky_store/target.txt`).
 
 ### 9.2 Instructions for Future Agents
 When modifying or extending RootFix:
