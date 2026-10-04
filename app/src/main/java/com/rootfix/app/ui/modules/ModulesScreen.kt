@@ -72,6 +72,15 @@ fun ModulesScreen(
     var modulePendingRemoval by remember { mutableStateOf<MagiskModule?>(null) }
     var isRemovingModule by remember { mutableStateOf(false) }
 
+    // Version selection dialog state
+    var versionPickerModule by remember { mutableStateOf<TrackedModule?>(null) }
+    var moduleReleases by remember { mutableStateOf<List<com.rootfix.app.data.model.ModuleReleaseInfo>>(emptyList()) }
+    var isLoadingReleases by remember { mutableStateOf(false) }
+
+    // Repository removal confirmation state
+    var repoPendingRemoval by remember { mutableStateOf<TrackedModule?>(null) }
+    var hasRemovedCatalogRepos by remember { mutableStateOf(false) }
+
     fun triggerModuleAction(moduleId: String, moduleName: String) {
         scope.launch {
             actionModalTitle = "$moduleName Action"
@@ -85,12 +94,41 @@ fun ModulesScreen(
         }
     }
 
+    fun openVersionPicker(module: TrackedModule) {
+        scope.launch {
+            versionPickerModule = module
+            isLoadingReleases = true
+            moduleReleases = emptyList()
+            val list = repo.fetchModuleReleaseHistory(module)
+            moduleReleases = list
+            isLoadingReleases = false
+        }
+    }
+
+    fun startInstallSpecificRelease(module: TrackedModule, release: com.rootfix.app.data.model.ModuleReleaseInfo) {
+        versionPickerModule = null
+        scope.launch {
+            showInstallSheet = true
+            installProgress = InstallProgress(InstallStage.FETCHING_RELEASE, "${module.name} (${release.tagName})")
+
+            repo.downloadAndInstallModule(module, releaseOverride = release) { progress ->
+                installProgress = progress
+            }
+
+            // Refresh modules list after installation completes
+            installedModules = magiskRepo.getInstalledModules()
+            trackedModules = repo.getTrackedModules()
+            hasRemovedCatalogRepos = repo.hasRemovedCatalogRepositories()
+        }
+    }
+
     fun refreshInstalled() {
         scope.launch {
             isLoading = true
             installedModules = magiskRepo.getInstalledModules()
             trackedModules = repo.getTrackedModules()
             isMagiskZygiskEnabled = magiskRepo.isMagiskZygiskEnabled()
+            hasRemovedCatalogRepos = repo.hasRemovedCatalogRepositories()
             isLoading = false
         }
     }
@@ -577,6 +615,25 @@ fun ModulesScreen(
                                             Text("Track Repo", fontSize = 13.sp)
                                         }
                                     }
+
+                                    if (hasRemovedCatalogRepos) {
+                                        Spacer(modifier = Modifier.height(10.dp))
+                                        OutlinedButton(
+                                            onClick = {
+                                                scope.launch {
+                                                    repo.restorePredefinedRepositories()
+                                                    refreshInstalled()
+                                                    Toast.makeText(context, "Default catalog repositories restored.", Toast.LENGTH_SHORT).show()
+                                                }
+                                            },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            shape = RoundedCornerShape(10.dp)
+                                        ) {
+                                            Icon(Icons.Default.RestartAlt, contentDescription = null, modifier = Modifier.size(16.dp), tint = PrimaryEmerald)
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text("Restore Default Catalog Repositories", fontSize = 12.sp, color = PrimaryEmerald)
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -627,14 +684,29 @@ fun ModulesScreen(
                                                 }
                                             }
 
-                                            Button(
-                                                onClick = { startInstallOrUpdate(module) },
-                                                colors = ButtonDefaults.buttonColors(containerColor = PrimaryEmerald),
-                                                shape = RoundedCornerShape(10.dp)
-                                            ) {
-                                                Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
-                                                Spacer(modifier = Modifier.width(4.dp))
-                                                Text("Update", fontWeight = FontWeight.Bold)
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                OutlinedButton(
+                                                    onClick = { openVersionPicker(module) },
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                                    modifier = Modifier.height(32.dp)
+                                                ) {
+                                                    Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(14.dp))
+                                                    Spacer(modifier = Modifier.width(3.dp))
+                                                    Text("Versions", fontSize = 11.sp)
+                                                }
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Button(
+                                                    onClick = { startInstallOrUpdate(module) },
+                                                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryEmerald),
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                                    modifier = Modifier.height(32.dp)
+                                                ) {
+                                                    Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(14.dp))
+                                                    Spacer(modifier = Modifier.width(4.dp))
+                                                    Text("Update", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                }
                                             }
                                         }
 
@@ -725,15 +797,27 @@ fun ModulesScreen(
                                                 OutlinedButton(
                                                     onClick = { triggerModuleAction(module.id, module.name) },
                                                     shape = RoundedCornerShape(8.dp),
-                                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
                                                     modifier = Modifier.height(32.dp)
                                                 ) {
                                                     Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
                                                     Spacer(modifier = Modifier.width(3.dp))
                                                     Text("Action", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                                                 }
-                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Spacer(modifier = Modifier.width(4.dp))
                                             }
+
+                                            OutlinedButton(
+                                                onClick = { openVersionPicker(module) },
+                                                shape = RoundedCornerShape(8.dp),
+                                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                                modifier = Modifier.height(32.dp)
+                                            ) {
+                                                Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(14.dp))
+                                                Spacer(modifier = Modifier.width(3.dp))
+                                                Text("Versions", fontSize = 11.sp)
+                                            }
+                                            Spacer(modifier = Modifier.width(4.dp))
 
                                             Button(
                                                 onClick = { startInstallOrUpdate(module) },
@@ -741,11 +825,12 @@ fun ModulesScreen(
                                                     containerColor = if (module.hasUpdate) WarningAmber else MaterialTheme.colorScheme.primary
                                                 ),
                                                 shape = RoundedCornerShape(8.dp),
-                                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                                modifier = Modifier.height(32.dp)
                                             ) {
                                                 Text(
                                                     text = if (module.hasUpdate) "Update" else if (module.isInstalled) "Reinstall" else "Install",
-                                                    fontSize = 12.sp,
+                                                    fontSize = 11.sp,
                                                     fontWeight = FontWeight.Bold
                                                 )
                                             }
@@ -777,18 +862,14 @@ fun ModulesScreen(
                                             color = TextSecondary
                                         )
 
-                                        if (module.isCustom) {
-                                            TextButton(
-                                                onClick = {
-                                                    scope.launch {
-                                                        repo.removeCustomTrackedModule(module.id)
-                                                        trackedModules = repo.getTrackedModules()
-                                                        Toast.makeText(context, "Untracked ${module.name}", Toast.LENGTH_SHORT).show()
-                                                    }
-                                                }
-                                            ) {
-                                                Text("Untrack", color = DangerRed, fontSize = 11.sp)
-                                            }
+                                        TextButton(
+                                            onClick = { repoPendingRemoval = module },
+                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                            modifier = Modifier.height(28.dp)
+                                        ) {
+                                            Icon(Icons.Default.Close, contentDescription = null, modifier = Modifier.size(12.dp), tint = DangerRed)
+                                            Spacer(modifier = Modifier.width(3.dp))
+                                            Text("Remove Repo", color = DangerRed, fontSize = 11.sp)
                                         }
                                     }
                                 }
@@ -1105,6 +1186,184 @@ fun ModulesScreen(
                         onClick = { modulePendingRemoval = null },
                         enabled = !isRemovingModule
                     ) {
+                        Text("Cancel")
+                    }
+                }
+            )
+        }
+
+        // Version Selection Dialog
+        if (versionPickerModule != null) {
+            val mod = versionPickerModule!!
+            AlertDialog(
+                onDismissRequest = {
+                    if (!isLoadingReleases) versionPickerModule = null
+                },
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.CloudDownload, contentDescription = null, tint = AccentCyan, modifier = Modifier.size(24.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text(mod.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                            Text("Select Version to Install", fontSize = 12.sp, color = TextSecondary)
+                        }
+                    }
+                },
+                text = {
+                    Box(modifier = Modifier.fillMaxWidth().heightIn(max = 400.dp)) {
+                        if (isLoadingReleases) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth().padding(32.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                CircularProgressIndicator(color = AccentCyan)
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Text("Fetching available releases from GitHub...", fontSize = 12.sp, color = TextSecondary)
+                            }
+                        } else if (moduleReleases.isEmpty()) {
+                            Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                                Text("No release versions found for this repository.", color = TextSecondary, fontSize = 13.sp)
+                            }
+                        } else {
+                            LazyColumn(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                items(moduleReleases) { rel ->
+                                    val isInstalledVersion = mod.installedVersion?.let { inst ->
+                                        inst.contains(rel.tagName, ignoreCase = true) || rel.tagName.contains(inst, ignoreCase = true)
+                                    } ?: false
+
+                                    Surface(
+                                        color = if (isInstalledVersion) PrimaryEmerald.copy(alpha = 0.1f) else MaterialTheme.colorScheme.surfaceVariant,
+                                        shape = RoundedCornerShape(10.dp),
+                                        border = if (isInstalledVersion) androidx.compose.foundation.BorderStroke(1.dp, PrimaryEmerald.copy(alpha = 0.4f)) else null,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(12.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    Text(
+                                                        text = rel.tagName,
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 14.sp,
+                                                        color = if (isInstalledVersion) PrimaryEmerald else MaterialTheme.colorScheme.onSurface
+                                                    )
+                                                    if (isInstalledVersion) {
+                                                        Spacer(modifier = Modifier.width(6.dp))
+                                                        Surface(
+                                                            color = PrimaryEmerald,
+                                                            shape = RoundedCornerShape(4.dp)
+                                                        ) {
+                                                            Text(
+                                                                text = "Installed",
+                                                                color = DarkBackground,
+                                                                fontSize = 9.sp,
+                                                                fontWeight = FontWeight.Bold,
+                                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                                if (rel.publishedAt.isNotBlank()) {
+                                                    Text(
+                                                        text = "Released: ${rel.publishedAt.take(10)}",
+                                                        fontSize = 11.sp,
+                                                        color = TextSecondary
+                                                    )
+                                                }
+                                                rel.primaryZipAsset?.let { zip ->
+                                                    val sizeMb = if (zip.sizeBytes > 0) String.format("%.1f MB", zip.sizeBytes / (1024f * 1024f)) else ""
+                                                    Text(
+                                                        text = "${zip.name} ${if (sizeMb.isNotBlank()) "• $sizeMb" else ""}",
+                                                        fontSize = 10.sp,
+                                                        color = AccentCyan
+                                                    )
+                                                }
+                                            }
+
+                                            Button(
+                                                onClick = { startInstallSpecificRelease(mod, rel) },
+                                                colors = ButtonDefaults.buttonColors(
+                                                    containerColor = if (isInstalledVersion) PrimaryEmerald.copy(alpha = 0.8f) else MaterialTheme.colorScheme.primary
+                                                ),
+                                                shape = RoundedCornerShape(8.dp),
+                                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                                modifier = Modifier.height(30.dp)
+                                            ) {
+                                                Text(
+                                                    text = if (isInstalledVersion) "Reinstall" else "Install",
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { versionPickerModule = null }) {
+                        Text("Close")
+                    }
+                }
+            )
+        }
+
+        // Repository Removal Confirmation Dialog
+        if (repoPendingRemoval != null) {
+            val mod = repoPendingRemoval!!
+            AlertDialog(
+                onDismissRequest = { repoPendingRemoval = null },
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.DeleteForever, contentDescription = null, tint = DangerRed)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Remove Repository?", fontWeight = FontWeight.Bold)
+                    }
+                },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            text = "Are you sure you want to remove \"${mod.name}\" from your repository catalog?",
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "RootFix will stop tracking updates for this repository. (Installed modules will remain on your device and can still be managed in the Installed tab).",
+                            fontSize = 12.sp,
+                            color = TextSecondary
+                        )
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            val target = repoPendingRemoval ?: return@Button
+                            repoPendingRemoval = null
+                            scope.launch {
+                                val removed = repo.removeRepository(target)
+                                if (removed) {
+                                    Toast.makeText(context, "Removed ${target.name} from catalog", Toast.LENGTH_SHORT).show()
+                                    refreshInstalled()
+                                }
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = DangerRed)
+                    ) {
+                        Text("Remove", color = TextPrimary, fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { repoPendingRemoval = null }) {
                         Text("Cancel")
                     }
                 }

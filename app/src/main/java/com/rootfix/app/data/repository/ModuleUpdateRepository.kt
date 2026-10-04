@@ -26,6 +26,7 @@ class ModuleUpdateRepository(
 
     private val prefs: SharedPreferences = context.getSharedPreferences("rootfix_module_updater", Context.MODE_PRIVATE)
     private val PREF_KEY_CUSTOM_MODULES = "custom_tracked_modules"
+    private val PREF_KEY_REMOVED_CATALOG = "removed_catalog_module_ids"
 
     /**
      * Curated catalog of essential root & integrity modules.
@@ -111,10 +112,14 @@ class ModuleUpdateRepository(
         val installedMap = installedList.associateBy { it.id.lowercase() }
 
         val customList = getCustomTrackedList()
+        val removedIds = getRemovedCatalogIds().map { it.lowercase() }.toSet()
         val combinedMap = mutableMapOf<String, TrackedModule>()
 
         // 1. Add curated catalog
         for (item in curatedCatalog) {
+            val key = item.id.lowercase()
+            if (removedIds.contains(key)) continue
+
             val installed = when (item.id) {
                 "integrity_box" -> installedMap["playintegrityfix"]?.takeIf {
                     it.name.contains("Integrity Box", ignoreCase = true) || it.author.contains("Meow", ignoreCase = true)
@@ -123,7 +128,7 @@ class ModuleUpdateRepository(
                     it.name.contains("Integrity Box", ignoreCase = true) || it.author.contains("Meow", ignoreCase = true)
                 }
                 "zygisksu", "zygisknext" -> installedMap["zygisksu"] ?: installedMap["zygisknext"]
-                else -> installedMap[item.id.lowercase()]
+                else -> installedMap[key]
             }
 
             val module = item.copy(
@@ -134,12 +139,15 @@ class ModuleUpdateRepository(
                 // Inherit updateJson from installed module if present
                 updateJsonUrl = installed?.updateJson?.ifBlank { null } ?: item.updateJsonUrl
             )
-            combinedMap[item.id.lowercase()] = module
+            combinedMap[key] = module
         }
 
         // 2. Add user-added custom modules
         for (item in customList) {
-            val installed = installedMap[item.id.lowercase()]
+            val key = item.id.lowercase()
+            if (removedIds.contains(key)) continue
+
+            val installed = installedMap[key]
             val module = item.copy(
                 isInstalled = installed != null,
                 installedVersion = installed?.version,
@@ -147,12 +155,13 @@ class ModuleUpdateRepository(
                 hasAction = installed?.hasAction ?: false,
                 isCustom = true
             )
-            combinedMap[item.id.lowercase()] = module
+            combinedMap[key] = module
         }
 
         // 3. Add any installed modules that are not in catalog or custom
         for (mod in installedList) {
             val key = mod.id.lowercase()
+            if (removedIds.contains(key)) continue
             if (!combinedMap.containsKey(key)) {
                 combinedMap[key] = TrackedModule(
                     id = mod.id,
@@ -163,7 +172,8 @@ class ModuleUpdateRepository(
                     updateJsonUrl = mod.updateJson,
                     installedVersion = mod.version,
                     installedVersionCode = mod.versionCode,
-                    isInstalled = true
+                    isInstalled = true,
+                    hasAction = mod.hasAction
                 )
             }
         }
@@ -232,22 +242,11 @@ class ModuleUpdateRepository(
         )
     }
 
-    private fun fetchGitHubRelease(owner: String, repo: String): ModuleReleaseInfo? {
+    private fun parseGitHubReleaseJson(json: JSONObject): ModuleReleaseInfo? {
         return try {
-            val url = "https://api.github.com/repos/$owner/$repo/releases/latest"
-            val request = Request.Builder()
-                .url(url)
-                .header("User-Agent", "RootFix/1.0 (Android)")
-                .header("Accept", "application/vnd.github.v3+json")
-                .build()
-
-            val response = httpClient.newCall(request).execute()
-            if (!response.isSuccessful) return null
-
-            val body = response.body?.string() ?: return null
-            val json = JSONObject(body)
-
             val tagName = json.optString("tag_name", "")
+            if (tagName.isBlank()) return null
+
             val name = json.optString("name", tagName)
             val notes = json.optString("body", "")
             val publishedAt = json.optString("published_at", "")
@@ -281,9 +280,73 @@ class ModuleUpdateRepository(
                 primaryZipAsset = primaryZip
             )
         } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun fetchGitHubRelease(owner: String, repo: String): ModuleReleaseInfo? {
+        return try {
+            val url = "https://api.github.com/repos/$owner/$repo/releases/latest"
+            val request = Request.Builder()
+                .url(url)
+                .header("User-Agent", "RootFix/1.0 (Android)")
+                .header("Accept", "application/vnd.github.v3+json")
+                .build()
+
+            val response = httpClient.newCall(request).execute()
+            if (!response.isSuccessful) return null
+
+            val body = response.body?.string() ?: return null
+            val json = JSONObject(body)
+            parseGitHubReleaseJson(json)
+        } catch (e: Exception) {
             e.printStackTrace()
             null
         }
+    }
+
+    /**
+     * Fetches up to 15 past releases from GitHub Releases API for version selection.
+     */
+    suspend fun fetchModuleReleaseHistory(module: TrackedModule): List<ModuleReleaseInfo> = withContext(Dispatchers.IO) {
+        val list = mutableListOf<ModuleReleaseInfo>()
+        val owner = module.repoOwner
+        val repo = module.repoName
+
+        if (!owner.isNullOrBlank() && !repo.isNullOrBlank()) {
+            try {
+                val url = "https://api.github.com/repos/$owner/$repo/releases?per_page=15"
+                val request = Request.Builder()
+                    .url(url)
+                    .header("User-Agent", "RootFix/1.0 (Android)")
+                    .header("Accept", "application/vnd.github.v3+json")
+                    .build()
+
+                val response = httpClient.newCall(request).execute()
+                if (response.isSuccessful) {
+                    val body = response.body?.string()
+                    if (!body.isNullOrBlank()) {
+                        val arr = JSONArray(body)
+                        for (i in 0 until arr.length()) {
+                            val json = arr.getJSONObject(i)
+                            val rel = parseGitHubReleaseJson(json)
+                            if (rel != null && rel.primaryZipAsset != null) {
+                                list.add(rel)
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+
+        // If no GitHub releases or module uses update.json, fallback to latest release
+        if (list.isEmpty()) {
+            val target = if (module.latestRelease != null) module else checkModuleUpdate(module)
+            target.latestRelease?.let { if (it.primaryZipAsset != null) list.add(it) }
+        }
+        list
     }
 
     private fun fetchUpdateJsonRelease(updateJsonUrl: String): ModuleReleaseInfo? {
@@ -508,9 +571,10 @@ class ModuleUpdateRepository(
      */
     suspend fun downloadAndInstallModule(
         module: TrackedModule,
+        releaseOverride: ModuleReleaseInfo? = null,
         onProgress: (InstallProgress) -> Unit
     ): Pair<Boolean, String> = withContext(Dispatchers.IO) {
-        val release = module.latestRelease
+        val release = releaseOverride ?: module.latestRelease
         val zipAsset = release?.primaryZipAsset
 
         if (zipAsset == null || zipAsset.downloadUrl.isBlank()) {
@@ -608,5 +672,48 @@ class ModuleUpdateRepository(
         } finally {
             destFile.delete()
         }
+    }
+
+    /**
+     * Set of repository IDs (lowercase) that the user removed from the catalog.
+     */
+    fun getRemovedCatalogIds(): Set<String> {
+        return prefs.getStringSet(PREF_KEY_REMOVED_CATALOG, emptySet()) ?: emptySet()
+    }
+
+    fun hasRemovedCatalogRepositories(): Boolean {
+        return getRemovedCatalogIds().isNotEmpty()
+    }
+
+    /**
+     * Removes a repository from the tracked catalog (either custom or predefined).
+     */
+    suspend fun removeRepository(module: TrackedModule): Boolean = withContext(Dispatchers.IO) {
+        val idLower = module.id.lowercase()
+        if (module.isCustom) {
+            removeCustomTrackedModule(module.id)
+            true
+        } else {
+            val current = getRemovedCatalogIds().toMutableSet()
+            current.add(idLower)
+            if (idLower == "integrity_box" || idLower == "playintegrityfix") {
+                current.add("integrity_box")
+                current.add("playintegrityfix")
+            }
+            if (idLower == "zygisksu" || idLower == "zygisknext") {
+                current.add("zygisksu")
+                current.add("zygisknext")
+            }
+            prefs.edit().putStringSet(PREF_KEY_REMOVED_CATALOG, current).commit()
+            true
+        }
+    }
+
+    /**
+     * Restores all predefined / curated repositories back into the catalog.
+     */
+    suspend fun restorePredefinedRepositories(): Boolean = withContext(Dispatchers.IO) {
+        prefs.edit().remove(PREF_KEY_REMOVED_CATALOG).commit()
+        true
     }
 }
